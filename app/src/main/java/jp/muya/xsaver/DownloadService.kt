@@ -103,6 +103,7 @@ class DownloadService : Service() {
             val metadata = File(task, "info.json").apply { writeText(json.toString()) }
             val request = baseRequest(null)
                 .addOption("--load-info-json", metadata.absolutePath)
+                .addOption("--no-clean-info-json")
                 .addOption("-o", File(output, "%(xsaver_folder)s/%(title).100B [%(id)s].%(ext)s").absolutePath)
                 .addOption("--windows-filenames")
                 .addOption("--concurrent-fragments", 4)
