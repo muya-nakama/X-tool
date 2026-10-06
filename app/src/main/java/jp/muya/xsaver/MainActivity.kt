@@ -23,8 +23,10 @@ class MainActivity : Activity() {
     private lateinit var cancel: Button
     private lateinit var open: Button
     private lateinit var update: Button
-    private lateinit var loginFile: Button
-    private var sessionCookies: String? = null
+    private lateinit var accountsButton: Button
+    private lateinit var appUpdate: Button
+    private var checkingUpdate = false
+    private var selectedAccount: String? = null
     private lateinit var status: TextView
     private lateinit var progress: ProgressBar
     private val listener: (DownloadState) -> Unit = { render(it) }
@@ -49,6 +51,7 @@ class MainActivity : Activity() {
             text = label; textSize = size; setTextColor(if (muted) Color.rgb(159, 180, 207) else ink)
             setPadding(0, dp(8), 0, dp(8))
         }
+        VersionSwitcher.addTo(root, this, VersionSwitcher.CURRENT)
         root.addView(text("X保存", 30f).apply { setTypeface(null, Typeface.BOLD) })
         root.addView(text("動画・録音済みスペースを、自動で判別。", 15f, true))
         root.addView(text("保存するリンク", 14f))
@@ -93,28 +96,21 @@ class MainActivity : Activity() {
         root.addView(open)
         root.addView(text("保存先\nDownload / X保存 / 動画 または スペース", 14f, true))
         root.addView(text("保存履歴は残しません。一時ファイルは処理後に削除します。", 13f, true))
-        loginFile = button("ログインが必要な場合").apply {
-            setOnClickListener {
-                AlertDialog.Builder(this@MainActivity).setTitle("今回だけ使うログイン情報")
-                    .setMessage("XのCookieファイル（Netscape形式）を選べます。端末内の今回の取得にだけ使用し、処理後に削除します。ファイルの内容を人に送らないでください。")
-                    .setPositiveButton("ファイルを選ぶ") { _, _ ->
-                        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                            type = "*/*"; addCategory(Intent.CATEGORY_OPENABLE)
-                        }, 21)
-                    }.setNegativeButton("戻る", null).show()
-            }
-        }
-        root.addView(loginFile)
+        selectedAccount = getPreferences(MODE_PRIVATE).getString("accountId", null)
+        accountsButton = button("アカウントを選ぶ").apply { setOnClickListener { chooseAccount() } }
+        root.addView(accountsButton)
+        appUpdate = button("アプリの更新を確認").apply { setOnClickListener { checkAppUpdate() } }
+        root.addView(appUpdate)
         update = button("取得エンジンを更新").apply {
             setOnClickListener { launchService(Intent(this@MainActivity, DownloadService::class.java).setAction(DownloadService.UPDATE)) }
         }
         root.addView(update)
-        root.addView(text("v1.00 · 仲間六夜 feat. ChatGPT\n公開動画・録音済みスペース用。Xがログインを要求した場合は、今回だけ使うログイン情報を読み込めます。", 12f, true))
+        root.addView(text("v1.02 · 仲間六夜 feat. ChatGPT\n公開動画・録音済みスペース用。アカウントは端末内に暗号化して保存します。ダウンロード履歴は残しません。", 12f, true))
         setContentView(ScrollView(this).apply { isFillViewport = true; addView(root) })
         receiveShare(intent)
     }
 
-    override fun onStart() { super.onStart(); StateHub.listen(listener) }
+    override fun onStart() { super.onStart(); refreshAccount(); StateHub.listen(listener) }
     override fun onStop() { StateHub.remove(listener); super.onStop() }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); receiveShare(intent) }
     private fun receiveShare(incoming: Intent) {
@@ -133,9 +129,7 @@ class MainActivity : Activity() {
                 input.text.clear()
                 (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(input.windowToken, 0)
                 val job = Intent(this, DownloadService::class.java).setAction(DownloadService.DOWNLOAD).putExtra("url", url)
-                sessionCookies?.let { job.putExtra("session", it) }
-                sessionCookies = null
-                loginFile.text = "ログインが必要な場合"
+                selectedAccount?.let { job.putExtra("accountId", it) }
                 launchService(job)
             }.setNegativeButton("戻る", null).show()
     }
@@ -150,7 +144,8 @@ class MainActivity : Activity() {
     }
     private fun render(s: DownloadState) {
         save.isEnabled = !s.busy; update.isEnabled = !s.busy; input.isEnabled = !s.busy
-        loginFile.isEnabled = !s.busy
+        accountsButton.isEnabled = !s.busy
+        appUpdate.isEnabled = !checkingUpdate
         cancel.visibility = if (s.busy) View.VISIBLE else View.GONE
         open.visibility = if (!s.busy && s.file != null) View.VISIBLE else View.GONE
         status.text = s.message
@@ -160,34 +155,101 @@ class MainActivity : Activity() {
         if (s.busy) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
-    @Deprecated("Uses platform document picker")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != 21 || resultCode != RESULT_OK || data?.data == null) return
-        val uri = data.data!!
+    private fun storedAccounts(): List<SavedAccount>? = runCatching { AccountStore(this).list() }
+        .onFailure { Toast.makeText(this, "保存したアカウントを読み込めませんでした。", Toast.LENGTH_LONG).show() }.getOrNull()
+    private fun selectAccount(id: String?) {
+        selectedAccount = id
+        getPreferences(MODE_PRIVATE).edit().apply {
+            if (id == null) remove("accountId") else putString("accountId", id)
+        }.apply()
+        refreshAccount()
+    }
+    private fun refreshAccount() {
+        val accounts = storedAccounts() ?: return
+        val account = accounts.find { it.id == selectedAccount }
+        if (account == null && selectedAccount != null) {
+            selectedAccount = null
+            getPreferences(MODE_PRIVATE).edit().remove("accountId").apply()
+        }
+        accountsButton.text = account?.let { "アカウント：${it.label}" } ?: "アカウント：ログインせず使う"
+    }
+    private fun chooseAccount() {
+        val accounts = storedAccounts() ?: return
+        val choices = listOf("ログインせず使う") + accounts.map { it.label } +
+            listOf("＋ 新しいアカウントでログイン", "保存したアカウントを管理")
+        AlertDialog.Builder(this).setTitle("使用するアカウント")
+            .setItems(choices.toTypedArray()) { _, index ->
+                when {
+                    index == 0 -> selectAccount(null)
+                    index <= accounts.size -> selectAccount(accounts[index - 1].id)
+                    index == accounts.size + 1 -> login(null)
+                    else -> manageAccounts(accounts)
+                }
+            }.setNegativeButton("戻る", null).show()
+    }
+    private fun login(account: SavedAccount?) {
+        startActivityForResult(Intent(this, LoginActivity::class.java).apply {
+            account?.let { putExtra("accountId", it.id); putExtra("label", it.label) }
+        }, 31)
+    }
+    private fun manageAccounts(accounts: List<SavedAccount>) {
+        if (accounts.isEmpty()) { Toast.makeText(this, "保存したアカウントはありません。", Toast.LENGTH_SHORT).show(); return }
+        AlertDialog.Builder(this).setTitle("管理するアカウント")
+            .setItems(accounts.map { it.label }.toTypedArray()) { _, i ->
+                val account = accounts[i]
+                AlertDialog.Builder(this).setTitle(account.label)
+                    .setItems(arrayOf("名前を変更", "ログインし直す", "この端末から削除")) { _, action ->
+                        when (action) {
+                            0 -> renameAccount(account)
+                            1 -> login(account)
+                            else -> AlertDialog.Builder(this).setTitle("${account.label}を削除しますか？")
+                                .setMessage("このアプリに保存したログイン状態を削除します。Xのアカウント自体は削除しません。")
+                                .setPositiveButton("削除") { _, _ ->
+                                    runCatching { AccountStore(this).remove(account.id) }
+                                        .onSuccess { refreshAccount() }
+                                        .onFailure { Toast.makeText(this, "削除できませんでした。", Toast.LENGTH_LONG).show() }
+                                }.setNegativeButton("戻る", null).show()
+                        }
+                    }.setNegativeButton("戻る", null).show()
+            }.setNegativeButton("戻る", null).show()
+    }
+    private fun renameAccount(account: SavedAccount) {
+        val field = EditText(this).apply { setText(account.label); isSingleLine = true; isSaveEnabled = false }
+        AlertDialog.Builder(this).setTitle("表示名を変更").setView(field)
+            .setPositiveButton("保存") { _, _ ->
+                if (field.text.toString().isNotBlank()) runCatching {
+                    AccountStore(this).save(field.text.toString(), account.cookies, account.id)
+                }.onSuccess { refreshAccount() }
+                 .onFailure { Toast.makeText(this, "変更できませんでした。", Toast.LENGTH_LONG).show() }
+            }.setNegativeButton("戻る", null).show()
+    }
+    private fun checkAppUpdate() {
+        if (checkingUpdate) return
+        checkingUpdate = true; appUpdate.isEnabled = false; appUpdate.text = "更新を確認しています…"
         Thread {
-            val cookies = runCatching {
-                contentResolver.openInputStream(uri)?.use { stream ->
-                    val buffer = java.io.ByteArrayOutputStream()
-                    val chunk = ByteArray(8192)
-                    while (true) {
-                        val n = stream.read(chunk)
-                        if (n < 0) break
-                        require(buffer.size() + n <= 256 * 1024)
-                        buffer.write(chunk, 0, n)
-                    }
-                    val bytes = buffer.toByteArray()
-                    require(bytes.size <= 256 * 1024)
-                    SessionCookies.filter(bytes.toString(Charsets.UTF_8))
-                } ?: throw IllegalArgumentException()
-            }.getOrNull()
+            val result = runCatching { AppUpdates.check() }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                sessionCookies = cookies
-                loginFile.text = if (cookies == null) "ログインが必要な場合" else "ログイン情報を読み込みました（今回だけ）"
-                if (cookies == null) Toast.makeText(this, "XのCookieファイル（Netscape形式）を選んでください。", Toast.LENGTH_LONG).show()
+                checkingUpdate = false; appUpdate.isEnabled = true; appUpdate.text = "アプリの更新を確認"
+                result.onSuccess { info ->
+                    val installed = packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
+                    val newer = AppUpdates.newer(info.version, installed)
+                    val dialog = AlertDialog.Builder(this).setTitle(if (newer) "新しいバージョンがあります" else "アプリのバージョン")
+                        .setMessage("使用中：v$installed\n配布版：v${info.version}" + if (newer) "" else "\n新しい更新はありません。")
+                        .setNegativeButton("閉じる", null)
+                    if (newer) dialog.setPositiveButton("更新ページを開く") { _, _ -> openRelease(info.url) }
+                    dialog.show()
+                }.onFailure { Toast.makeText(this, "更新を確認できませんでした。通信状態を確認して再度お試しください。", Toast.LENGTH_LONG).show() }
             }
         }.start()
     }
-    override fun onDestroy() { sessionCookies = null; super.onDestroy() }
+    private fun openRelease(url: String) {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+            .onFailure { Toast.makeText(this, "ブラウザを開けませんでした。", Toast.LENGTH_LONG).show() }
+    }
+    @Deprecated("Platform activity result")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 31 && resultCode == RESULT_OK) selectAccount(data?.getStringExtra("accountId"))
+    }
 }

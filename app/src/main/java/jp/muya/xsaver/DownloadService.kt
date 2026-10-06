@@ -48,9 +48,9 @@ class DownloadService : Service() {
         if (working) return START_NOT_STICKY
         val updating = intent?.action == UPDATE
         val url = XLink.parse(intent?.getStringExtra("url").orEmpty())
-        val session = intent?.getStringExtra("session")
+        val accountId = intent?.getStringExtra("accountId")
         intent?.removeExtra("url")
-        intent?.removeExtra("session")
+        intent?.removeExtra("accountId")
         if (!updating && url == null) { stopSelf(); return START_NOT_STICKY }
         working = true
         cancelled = false
@@ -58,11 +58,11 @@ class DownloadService : Service() {
         startForeground(NOTICE, notification(first))
         StateHub.publish(DownloadState(true, first))
         wake = (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xsaver:download").apply { acquire(6 * 60 * 60 * 1000L) }
-        Thread({ runJob(url, updating, session) }, "x-saver-job").start()
+        Thread({ runJob(url, updating, accountId) }, "x-saver-job").start()
         return START_NOT_STICKY
     }
     private fun checkCancel() { if (cancelled) throw CancellationException() }
-    private fun runJob(url: String?, updating: Boolean, session: String?) {
+    private fun runJob(url: String?, updating: Boolean, accountId: String?) {
         val tasks = File(cacheDir, "downloads")
         val published = mutableListOf<Uri>()
         var finished = false
@@ -83,6 +83,10 @@ class DownloadService : Service() {
             }
             val task = File(tasks, UUID.randomUUID().toString()).apply { check(mkdirs()) }
             val output = File(task, "media").apply { check(mkdirs()) }
+            val session = if (accountId == null) null else {
+                AccountStore(this).list().find { it.id == accountId }?.cookies
+                    ?: throw IllegalStateException("選択したアカウントが見つかりません。アカウントを選び直してください。")
+            }
             if (session != null) cookieFile = File(task, "session.txt").apply { writeText(SessionCookies.filter(session)) }
             val infoRequest = baseRequest(url!!).addOption("--dump-single-json").addOption("--skip-download")
             val info = YoutubeDL.execute(infoRequest, processId, null).out
@@ -164,7 +168,7 @@ class DownloadService : Service() {
             val message = when {
                 cancelled || e is CancellationException || e is YoutubeDL.CanceledException -> "キャンセルしました。"
                 e.message.orEmpty().contains("auth", true) || e.message.orEmpty().contains("login", true) || e.message.orEmpty().contains("cookies", true) ->
-                    "Xへのログインが必要です。「ログインが必要な場合」から、今回だけ使うCookieファイルを読み込んで再度お試しください。"
+                    "Xへのログインが必要です。「アカウント」からログインするか、別のアカウントを選んでください。保存済みなら「ログインし直す」で更新してください。"
                 e is IllegalStateException -> e.message ?: "保存できませんでした。"
                 else -> "取得できませんでした。リンク・通信状態を確認し、取得エンジンを更新して再度お試しください。"
             }
