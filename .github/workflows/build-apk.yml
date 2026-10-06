@@ -1,6 +1,11 @@
 name: Build APK
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: Publish the tested new/old APK
+        type: boolean
+        default: false
   push:
     branches: [main, master]
 permissions:
@@ -9,8 +14,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare previous published version
+        run: python3 scripts/prepare_versions.py
+      - name: Read current version
+        id: version
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          print('version=' + json.load(open('new/version.json'))['version'])
+          PY
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -21,11 +37,89 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Test and build
+      - name: Test and build both versions
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: X-tool-v1.00-arm64-APK
+          name: X-tool-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: previous-source
+          path: old/
+          if-no-files-found: error
+          retention-days: 7
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clear previous-source destination
+        run: rm -rf old
+      - uses: actions/download-artifact@v4
+        with:
+          name: previous-source
+          path: old
+      - uses: actions/download-artifact@v4
+        with:
+          name: X-tool-APK
+          path: dist
+      - name: Persist the prepared previous slot
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add old
+          if ! git diff --cached --quiet; then
+            git commit -m 'Rotate previous published version into old [skip ci]'
+            git push origin HEAD:main
+          fi
+      - name: Publish test APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          mv dist/app-debug.apk "dist/X-tool-v$APP_VERSION.apk"
+          previous_version=$(python3 -c "import json; print(json.load(open('old/version.json'))['version'])")
+          cat > /tmp/x-tool-release.md <<NOTES
+          アプリ内で最新版v$APP_VERSIONと前の配布版v$previous_versionの画面・取得処理を切り替えられるテスト版です。
+
+          - アプリ内ブラウザでXにログインし、複数アカウントを暗号化保存・選択・管理。
+          - ログイン状態はアプリ専用領域の .ログイン情報.txt に暗号化テキストとして保存。
+          - GitHubでアプリの更新を確認。
+          - 画面上部から新旧版を切り替え。保存中・エンジン更新中は切り替え不可。
+          - new/old の二枠を同梱。次の配布では今回の最新版がoldへ移ります。
+          - 旧版v1.00では当時のCookieファイル方式を使用。最新版の保存済みアカウントは維持。
+          - 保存先はDownload/X保存/動画 または スペース。ダウンロード履歴は残しません。
+
+          Android 10以降・arm64向け。AssetsのAPKを使用してください。
+          Xログイン、アカウント選択、版の切り替え、APKインストールの実機確認は未完了です。
+          Google・Apple経由のログインには対応しません。Xのユーザー名とパスワードを使用してください。
+          以前のインストール不具合が解消したと確認できた版ではありません。
+          debug署名が以前のビルドと異なる場合は再インストールが必要で、保存したアカウントは失われます。
+          Android設定・共通ライブラリ・取得エンジン本体は版の切り替えでは戻りません。
+          NOTES
+          target_sha=$(git rev-parse HEAD)
+          if gh release view "v$APP_VERSION" >/dev/null 2>&1; then
+            gh release upload "v$APP_VERSION" "dist/X-tool-v$APP_VERSION.apk" --clobber
+            gh release edit "v$APP_VERSION" --notes-file /tmp/x-tool-release.md --prerelease --target "$target_sha"
+          else
+            gh release create "v$APP_VERSION" "dist/X-tool-v$APP_VERSION.apk" --title "X-tool v$APP_VERSION（複数アカウント・new/old切替）" --notes-file /tmp/x-tool-release.md --prerelease --target "$target_sha"
+          fi
+      - name: Publish update manifest after APK is available
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          python3 - <<'PY' > /tmp/x-tool-update.json
+          import json, os
+          version = os.environ['APP_VERSION']
+          print(json.dumps({'version': version, 'url': f'https://github.com/muya-nakama/X-tool/releases/tag/v{version}'}))
+          PY
+          manifest_sha=$(gh api "repos/$GITHUB_REPOSITORY/contents/app-update.json?ref=main" --jq .sha)
+          manifest_content=$(base64 -w0 /tmp/x-tool-update.json)
+          gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/app-update.json" -f message='Publish update manifest after APK [skip ci]' -f sha="$manifest_sha" -f content="$manifest_content" -f branch=main
