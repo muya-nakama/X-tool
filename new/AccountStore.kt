@@ -60,6 +60,7 @@ class AccountStore(context: Context) {
         cipher.init(Cipher.ENCRYPT_MODE, key())
         cipher.updateAAD("xsaver.accounts.v1".toByteArray())
         val encrypted = byteArrayOf(1) + cipher.iv + cipher.doFinal(rows.toString().toByteArray())
+        require(encrypted.size <= 2 * 1024 * 1024) { "Saved sessions exceed storage limit" }
         val stream = file.startWrite()
         val text = "XSAVER_LOGIN_V1\n" + Base64.encodeToString(encrypted, Base64.NO_WRAP) + "\n"
         try { stream.write(text.toByteArray(Charsets.UTF_8)); file.finishWrite(stream) }
