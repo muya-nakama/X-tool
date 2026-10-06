@@ -18,7 +18,7 @@
 1. このZIPを展開し、**中身をリポジトリの直下**へアップロードする。`app`、`.github`、`settings.gradle.kts`などが直下にある形。ZIP自体を置くだけではビルドされない。
 2. `.github/workflows/build-apk.yml`も必ず含める。スマホのファイル選択で隠しフォルダが見えない場合はGitHubの「Add file → Create new file」で、このパスを指定して内容をコピーする。
 3. GitHub → Actions → Build APK。main/masterへのpushで自動実行する。別ブランチなら「Run workflow」で実行する。
-4. 成功した実行のArtifacts → `X-tool-v1.02-arm64-APK`をダウンロードする（GitHubログインが必要）。
+4. 成功した実行のArtifacts → `X-tool-APK`をダウンロードする（GitHubログインが必要）。
 5. ダウンロードしたZIPを展開し、`app-debug.apk`を開いてインストールする。必要ならブラウザ／マイファイルに「不明なアプリのインストール」を許可する。
 6. アプリにリンクを貼り、「保存する」→「はい」。Xから共有して「X保存」を選ぶこともできる。
 
