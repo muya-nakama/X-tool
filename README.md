@@ -1,4 +1,4 @@
-# X-tool / X保存 v1.00
+# X-tool / X保存 v1.01
 
 仲間六夜 feat. ChatGPT。自分専用のAndroidアプリ。Android 10以降のarm64端末用（Galaxy S24 Ultraを想定）。
 
@@ -9,7 +9,7 @@
 - URL貼り付け／Xの共有からの受け取り。
 - 保存前の確認、進捗表示、キャンセル、保存後に開く。
 - 保存中はフォアグラウンドサービスで処理。通知は保存中だけ表示。
-- 保存先：`Download/X保存/動画/`・`Download/X保存/スペース/`。
+- 保存先：`Download/X保存/動画/ホストID/`・`Download/X保存/Space/ホストID/`。ホストIDは投稿者（Spaceはホスト）のユーザー名（@なし）。取得できない場合は `ユーザー不明` に保存します。既存ファイルは移動しません。
 - AndroidのMediaStoreを使用し、全ファイルアクセス権限を要求しない。
 - 取得エンジンの手動更新。通常の取得で更新待ちは発生しない。
 
@@ -18,7 +18,7 @@
 1. このZIPを展開し、**中身をリポジトリの直下**へアップロードする。`app`、`.github`、`settings.gradle.kts`などが直下にある形。ZIP自体を置くだけではビルドされない。
 2. `.github/workflows/build-apk.yml`も必ず含める。スマホのファイル選択で隠しフォルダが見えない場合はGitHubの「Add file → Create new file」で、このパスを指定して内容をコピーする。
 3. GitHub → Actions → Build APK。main/masterへのpushで自動実行する。別ブランチなら「Run workflow」で実行する。
-4. 成功した実行のArtifacts → `X-tool-v1.00-arm64-APK`をダウンロードする（GitHubログインが必要）。
+4. 成功した実行のArtifacts → `X-tool-v1.01-arm64-APK`をダウンロードする（GitHubログインが必要）。
 5. ダウンロードしたZIPを展開し、`app-debug.apk`を開いてインストールする。必要ならブラウザ／マイファイルに「不明なアプリのインストール」を許可する。
 6. アプリにリンクを貼り、「保存する」→「はい」。Xから共有して「X保存」を選ぶこともできる。
 
@@ -51,3 +51,8 @@ JDK 17、Gradle 8.11.1、Android SDK 35を使用する。`gradle :app:testDebugU
 - FFmpeg：同梱ビルドのライセンスに従う。
 
 アプリのソースはGPL-3.0-or-later。元ライブラリの著作権・ライセンスを引き継ぐ。外部配布する場合は対応するソースとライセンスも提供する。
+
+## v1.01 更新内容
+
+- 動画・SpaceをホストIDごとのフォルダに保存。複数動画にも対応。
+- スペースの保存フォルダ名を `Space` に変更。
