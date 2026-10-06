@@ -8,7 +8,7 @@
     <application android:label="X保存" android:icon="@drawable/ic_app"
         android:theme="@style/AppTheme" android:allowBackup="false"
         android:extractNativeLibs="true" android:usesCleartextTraffic="false">
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".LauncherActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -19,6 +19,12 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+        <activity android:name=".MainActivity" android:exported="false" />
+        <activity android:name=".legacy.MainActivity" android:exported="false" />
+        <service android:name=".legacy.DownloadService" android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <activity android:name=".LoginActivity" android:exported="false"
+            android:process=":login" android:windowSoftInputMode="adjustResize" />
         <service android:name=".DownloadService" android:exported="false"
             android:foregroundServiceType="dataSync" />
     </application>
