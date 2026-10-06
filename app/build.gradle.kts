@@ -9,8 +9,8 @@ android {
         applicationId = "jp.muya.xsaver"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.00"
+        versionCode = 3
+        versionName = "1.02"
         ndk { abiFilters += "arm64-v8a" }
     }
     compileOptions {
