@@ -91,7 +91,7 @@ class MainActivity : Activity() {
             }
         }
         root.addView(open)
-        root.addView(text("保存先\nDownload / X保存 / 動画 または スペース", 14f, true))
+        root.addView(text("保存先\nDownload / X保存 / 動画 または Space / ホストID", 14f, true))
         root.addView(text("保存履歴は残しません。一時ファイルは処理後に削除します。", 13f, true))
         loginFile = button("ログインが必要な場合").apply {
             setOnClickListener {
@@ -109,7 +109,7 @@ class MainActivity : Activity() {
             setOnClickListener { launchService(Intent(this@MainActivity, DownloadService::class.java).setAction(DownloadService.UPDATE)) }
         }
         root.addView(update)
-        root.addView(text("v1.00 · 仲間六夜 feat. ChatGPT\n公開動画・録音済みスペース用。Xがログインを要求した場合は、今回だけ使うログイン情報を読み込めます。", 12f, true))
+        root.addView(text("v1.01 · 仲間六夜 feat. ChatGPT\n公開動画・録音済みスペース用。Xがログインを要求した場合は、今回だけ使うログイン情報を読み込めます。", 12f, true))
         setContentView(ScrollView(this).apply { isFillViewport = true; addView(root) })
         receiveShare(intent)
     }
