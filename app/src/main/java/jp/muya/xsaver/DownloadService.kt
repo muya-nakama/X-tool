@@ -99,10 +99,11 @@ class DownloadService : Service() {
                         (0 until formats.length()).all { i -> formats.getJSONObject(i).optString("vcodec") == "none" }
                     } == true && item.optJSONArray("formats")!!.length() > 0)
             }
-            val metadata = File(task, "info.json").apply { writeText(info) }
+            val owners = prepareOwners(json)
+            val metadata = File(task, "info.json").apply { writeText(json.toString()) }
             val request = baseRequest(null)
                 .addOption("--load-info-json", metadata.absolutePath)
-                .addOption("-o", File(output, "%(title).100B [%(id)s].%(ext)s").absolutePath)
+                .addOption("-o", File(output, "%(xsaver_folder)s/%(title).100B [%(id)s].%(ext)s").absolutePath)
                 .addOption("--windows-filenames")
                 .addOption("--concurrent-fragments", 4)
                 .addOption("--no-mtime")
@@ -127,13 +128,15 @@ class DownloadService : Service() {
             }
             checkCancel()
             val ext = if (audio) "m4a" else "mp4"
-            val files = output.listFiles()?.filter { it.isFile && it.extension == ext && it.length() > 0 }.orEmpty()
+            val files = output.walkTopDown().filter { it.isFile && it.extension == ext && it.length() > 0 }.toList()
             if (files.isEmpty()) throw IllegalStateException("保存できるファイルが生成されませんでした。")
             val mime = if (audio) "audio/mp4" else "video/mp4"
-            val folder = "Download/X保存/" + if (audio) "スペース/" else "動画/"
             show("端末に保存しています…")
             for (file in files) {
                 checkCancel()
+                val owner = owners[file.parentFile?.name]
+                    ?: throw IllegalStateException("保存先のユーザーIDを確認できませんでした。")
+                val folder = "Download/X保存/${if (audio) "Space" else "動画"}/$owner/"
                 val values = ContentValues().apply {
                     put(MediaStore.Downloads.DISPLAY_NAME, file.name)
                     put(MediaStore.Downloads.MIME_TYPE, mime)
@@ -191,6 +194,25 @@ class DownloadService : Service() {
     private fun leaves(item: JSONObject): List<JSONObject> {
         val entries = item.optJSONArray("entries") ?: return listOf(item)
         return (0 until entries.length()).flatMap { i -> entries.optJSONObject(i)?.let { leaves(it) }.orEmpty() }
+    }
+    private fun prepareOwners(root: JSONObject): Map<String, String> {
+        val owners = linkedMapOf<String, String>()
+        fun visit(item: JSONObject, inherited: String?) {
+            val raw = item.optString("uploader_id").removePrefix("@")
+            // Only account handles become path components; never trust arbitrary metadata paths.
+            val owner = raw.takeIf { it.matches(Regex("[A-Za-z0-9_]{1,15}")) }
+                ?: inherited
+            val entries = item.optJSONArray("entries")
+            if (entries != null) {
+                for (i in 0 until entries.length()) entries.optJSONObject(i)?.let { visit(it, owner) }
+            } else {
+                val key = owners.size.toString()
+                owners[key] = owner ?: "ユーザー不明"
+                item.put("xsaver_folder", key)
+            }
+        }
+        visit(root, null)
+        return owners
     }
     private fun cleanPendingRows() {
         // Scoped storage exposes this application's unfinished rows, not other apps' pending data.
