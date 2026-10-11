@@ -52,7 +52,7 @@ jobs:
       - name: Test and build both versions
         run: gradle --no-daemon :app:testDebugUnitTest :app:assembleRelease
       - name: Check APK signature
-        run: '"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk' 
+        run: '"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk'
       - uses: actions/upload-artifact@v4
         with:
           name: X-tool-APK
