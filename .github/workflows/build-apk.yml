@@ -7,7 +7,7 @@ on:
         type: boolean
         default: false
   push:
-    branches: [main, master]
+    branches: [main, master, fix/data-preserving-updates]
 permissions:
   contents: read
 jobs:
@@ -18,6 +18,11 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - name: Decide whether to publish
+        id: mode
+        env:
+          APP_PUBLISH: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_release && github.ref == 'refs/heads/main') }}
+        run: echo "publish=$APP_PUBLISH" >> "$GITHUB_OUTPUT"
       - name: Prepare previous published version
         run: |
           python3 scripts/prepare_versions.py
@@ -39,12 +44,19 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Prepare APK signature
+        env:
+          APP_PUBLISH: ${{ steps.mode.outputs.publish }}
+          APP_SIGNING_BUNDLE: ${{ steps.mode.outputs.publish == 'true' && secrets.APP_SIGNING_BUNDLE || '' }}
+        run: python3 scripts/prepare_signing.py
       - name: Test and build both versions
-        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleDebug
+        run: gradle --no-daemon :app:testDebugUnitTest :app:assembleRelease
+      - name: Check APK signature
+        run: '"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose app/build/outputs/apk/release/app-release.apk' 
       - uses: actions/upload-artifact@v4
         with:
           name: X-tool-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-artifact@v4
@@ -53,8 +65,11 @@ jobs:
           path: old/
           if-no-files-found: error
           retention-days: 7
+      - name: Remove temporary signing files
+        if: always()
+        run: rm -f "$RUNNER_TEMP/movie-audio-signing.jks"
   release:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_release && github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -80,12 +95,12 @@ jobs:
             git commit -m 'Rotate previous published version into old [skip ci]'
             git push origin HEAD:main
           fi
-      - name: Publish test APK
+      - name: Publish signed APK
         env:
           GH_TOKEN: ${{ github.token }}
           APP_VERSION: ${{ needs.build.outputs.version }}
         run: |
-          mv dist/app-debug.apk "dist/MOVIE-AUDIO-TOOL-v$APP_VERSION.apk"
+          mv dist/app-release.apk "dist/MOVIE-AUDIO-TOOL-v$APP_VERSION.apk"
           previous_version=$(python3 -c "import json; print(json.load(open('old/version.json'))['version'])")
           python3 - <<'PY' > /tmp/x-tool-release.md
           from pathlib import Path
@@ -106,12 +121,14 @@ jobs:
           APP_VERSION: ${{ needs.build.outputs.version }}
         run: |
           python3 - <<'PY' > /tmp/x-tool-update.json
-          import json, os
+          import json, os, hashlib
           from pathlib import Path
           version = os.environ['APP_VERSION']
           previous = json.loads(Path('old/version.json').read_text())['version']
           notes = Path('CHANGELOG.md').read_text().split('\n## ', 2)[1].split('\n', 1)[1]
-          print(json.dumps({'version': version, 'url': f'https://github.com/muya-nakama/X-tool/releases/tag/v{version}', 'notes': notes, 'previous': {'version': previous, 'url': f'https://github.com/muya-nakama/X-tool/releases/tag/v{previous}'}}))
+          apk = Path('dist') / f'MOVIE-AUDIO-TOOL-v{version}.apk'
+          apk_info = {'url': f'https://github.com/muya-nakama/X-tool/releases/download/v{version}/{apk.name}', 'bytes': apk.stat().st_size, 'sha256': hashlib.sha256(apk.read_bytes()).hexdigest(), 'versionCode': json.loads(Path('new/version.json').read_text())['versionCode']}
+          print(json.dumps({'apk': apk_info, 'version': version, 'url': f'https://github.com/muya-nakama/X-tool/releases/tag/v{version}', 'notes': notes, 'previous': {'version': previous, 'url': f'https://github.com/muya-nakama/X-tool/releases/tag/v{previous}'}}))
           PY
           manifest_sha=$(gh api "repos/$GITHUB_REPOSITORY/contents/app-update.json?ref=main" --jq .sha)
           manifest_content=$(base64 -w0 /tmp/x-tool-update.json)
