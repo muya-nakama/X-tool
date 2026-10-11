@@ -20,6 +20,8 @@ val generatePreviousVersion by tasks.registering {
             if (source.name == "MainActivity.kt") {
                 text = text.replace("package jp.muya.xsaver.legacy", "package jp.muya.xsaver.legacy\n\nimport jp.muya.xsaver.VersionSwitcher\nimport jp.muya.xsaver.BuildConfig", true)
                     .replace("VersionSwitcher.CURRENT", "VersionSwitcher.PREVIOUS")
+                    .replace("startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(remote.url)))", "jp.muya.xsaver.UpdateActivity.open(this)")
+                    .replace("更新ページを開く", "更新する")
                     .replace("text(\"v\${BuildConfig.VERSION_NAME}\", 12f)", "text(\"v\${VersionSwitcher.PREVIOUS}\", 12f)")
                 if (!text.contains("VersionSwitcher.addTo")) {
                     text = text.replace("        root.addView(text(\"X保存\", 30f)",
@@ -64,6 +66,23 @@ android {
         versionName = currentInfo["version"].toString()
         buildConfigField("String", "PREVIOUS_VERSION", "\"${previousInfo["version"]}\"")
         ndk { abiFilters += "arm64-v8a" }
+    }
+    signingConfigs {
+        create("persistent") {
+            val signingPath = System.getenv("APP_SIGNING_STORE")
+            if (!signingPath.isNullOrBlank()) {
+                storeFile = file(signingPath)
+                storePassword = System.getenv("APP_SIGNING_PASSWORD")
+                keyAlias = "app"
+                keyPassword = System.getenv("APP_SIGNING_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("persistent")
+            isMinifyEnabled = false
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
