@@ -18,8 +18,9 @@ val generatePreviousVersion by tasks.registering {
         rootProject.file("old").walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { source ->
             var text = source.readText().replace("package jp.muya.xsaver", "package jp.muya.xsaver.legacy")
             if (source.name == "MainActivity.kt") {
-                text = text.replace("package jp.muya.xsaver.legacy", "package jp.muya.xsaver.legacy\n\nimport jp.muya.xsaver.VersionSwitcher", true)
+                text = text.replace("package jp.muya.xsaver.legacy", "package jp.muya.xsaver.legacy\n\nimport jp.muya.xsaver.VersionSwitcher\nimport jp.muya.xsaver.BuildConfig", true)
                     .replace("VersionSwitcher.CURRENT", "VersionSwitcher.PREVIOUS")
+                    .replace("text(\"v\${BuildConfig.VERSION_NAME}\", 12f)", "text(\"v\${VersionSwitcher.PREVIOUS}\", 12f)")
                 if (!text.contains("VersionSwitcher.addTo")) {
                     text = text.replace("        root.addView(text(\"X保存\", 30f)",
                         "        VersionSwitcher.addTo(root, this, VersionSwitcher.PREVIOUS)\n        root.addView(text(\"X保存\", 30f)")
@@ -40,6 +41,7 @@ val generatePreviousVersion by tasks.registering {
                 """.trimIndent()
             }
             text = text.replace(" · 仲間六夜 feat. ChatGPT", "")
+                .replace("EngineGate.lock", "jp.muya.xsaver.EngineGate.lock")
             target.resolve(source.name).writeText(text)
         }
         var manifest = file("src/main/AndroidManifest.xml").readText()
