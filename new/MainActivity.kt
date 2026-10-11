@@ -155,7 +155,7 @@ class MainActivity : Activity() {
             }.setNegativeButton("戻る", null).show()
     }
     private fun launch(job: Intent) {
-        if (StateHub.state.busy || jp.muya.xsaver.legacy.StateHub.state.busy) return
+        if (StateHub.state.busy || jp.muya.xsaver.legacy.StateHub.state.busy || jp.muya.xsaver.UpdateActivity.running) return
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 20)
         runCatching { startForegroundService(job) }.onFailure { toast("開始できませんでした。画面を開いたまま再度お試しください。") }
@@ -225,7 +225,7 @@ class MainActivity : Activity() {
         appRemote?.takeIf { AppUpdates.newer(it.version, BuildConfig.VERSION_NAME) }?.let { remote ->
             body.addView(button("アプリを更新") {
                 AlertDialog.Builder(this).setTitle("v${remote.version}の更新内容").setMessage(remote.notes.ifBlank { "配布ページで更新内容を確認できます。" })
-                    .setPositiveButton("更新ページを開く") { _, _ -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(remote.url))) }.setNegativeButton("戻る", null).show()
+                    .setPositiveButton("更新する") { _, _ -> jp.muya.xsaver.UpdateActivity.open(this) }.setNegativeButton("戻る", null).show()
             })
         }
         body.addView(text("共通エンジン：$engineStatus"))
@@ -328,6 +328,6 @@ class MainActivity : Activity() {
     }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
     companion object {
-        const val CHANGELOG = "v1.04 · 2026/10/12\n・通信の応答待ちを20秒から60秒へ\n・一時的な通信エラーの再試行を改善\n・取得に失敗した理由をわかりやすく表示\n\nv1.03 · 2026/10/11\n・MOVIE&AUDIO-TOOLへ名称変更\n・URLでサービスを自動判別\n・サムネイル、タイトル、長さ、画質と推定容量\n・動画／音声の形式選択、音声品質を保って保存\n・サービス別ログインとアカウント管理\n・起動時に本体・エンジンの更新を確認\n・最新版の項目は更新ボタン非表示\n・大容量保存時の通信警告\n・設定から旧版へ切替\n\nv1.02\n・Xの画面入力ログイン、複数アカウント管理\n・新旧版切替とアプリ更新確認\n\nv1.00\n・X動画、録音済みSpaceの保存"
+        const val CHANGELOG = "v1.05 · 2026/10/12\n・更新用の署名を固定する仕組み\n・アプリ内でAPKを取得して上書き更新\n・更新前に同じアプリ・署名か確認\n・v1.04以前は署名が異なるため、そのまま上書き不可\n\nv1.04 · 2026/10/12\n・通信の応答待ちを20秒から60秒へ\n・一時的な通信エラーの再試行を改善\n・取得に失敗した理由をわかりやすく表示\n\nv1.03 · 2026/10/11\n・MOVIE&AUDIO-TOOLへ名称変更\n・URLでサービスを自動判別\n・サムネイル、タイトル、長さ、画質と推定容量\n・動画／音声の形式選択、音声品質を保って保存\n・サービス別ログインとアカウント管理\n・起動時に本体・エンジンの更新を確認\n・最新版の項目は更新ボタン非表示\n・大容量保存時の通信警告\n・設定から旧版へ切替\n\nv1.02\n・Xの画面入力ログイン、複数アカウント管理\n・新旧版切替とアプリ更新確認\n\nv1.00\n・X動画、録音済みSpaceの保存"
     }
 }
