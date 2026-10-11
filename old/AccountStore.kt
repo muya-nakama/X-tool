@@ -15,7 +15,7 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-data class SavedAccount(val id: String, val label: String, val cookies: String)
+data class SavedAccount(val id: String, val label: String, val cookies: String, val service: String = "x")
 
 class AccountStore(context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, ".ログイン情報.txt"))
@@ -40,12 +40,12 @@ class AccountStore(context: Context) {
         cipher.updateAAD("xsaver.accounts.v1".toByteArray())
         val rows = JSONArray(cipher.doFinal(data.copyOfRange(13, data.size)).toString(Charsets.UTF_8))
         return (0 until rows.length()).map { i -> rows.getJSONObject(i).let {
-            SavedAccount(it.getString("id"), it.getString("label"), SessionCookies.filter(it.getString("cookies")))
+            SavedAccount(it.getString("id"), it.getString("label"), SessionCookies.filter(it.getString("cookies"), it.optString("service", "x")), it.optString("service", "x"))
         } }
     }
-    fun save(label: String, cookies: String, existingId: String? = null): String {
+    fun save(label: String, cookies: String, existingId: String? = null, service: String = "x"): String {
         val id = existingId ?: UUID.randomUUID().toString()
-        val accounts = list().filterNot { it.id == id } + SavedAccount(id, label.trim().take(60), SessionCookies.filter(cookies))
+        val accounts = list().filterNot { it.id == id } + SavedAccount(id, label.trim().take(60), SessionCookies.filter(cookies, service), service)
         require(accounts.size <= 20)
         write(accounts)
         return id
@@ -54,7 +54,7 @@ class AccountStore(context: Context) {
     private fun write(accounts: List<SavedAccount>) {
         if (accounts.isEmpty()) { file.delete(); return }
         val rows = JSONArray().apply { accounts.forEach { a ->
-            put(JSONObject().put("id", a.id).put("label", a.label).put("cookies", a.cookies))
+            put(JSONObject().put("id", a.id).put("label", a.label).put("cookies", a.cookies).put("service", a.service))
         } }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())

@@ -5,7 +5,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 data class AppUpdate(val version: String, val url: String)
-data class AppVersions(val version: String, val url: String, val previous: AppUpdate?)
+data class AppVersions(val version: String, val url: String, val previous: AppUpdate?, val notes: String = "")
 object AppUpdates {
     fun newer(remote: String, local: String): Boolean {
         fun parts(version: String): List<Int> = version.removePrefix("v").split('.').map { it.toInt() }
@@ -46,7 +46,7 @@ object AppUpdates {
                 require(link == "https://github.com/muya-nakama/X-tool/releases/tag/v$v")
                 AppUpdate(v, link)
             }
-            return AppVersions(version, url, previous)
+            return AppVersions(version, url, previous, json.optString("notes"))
         } finally { connection.disconnect() }
     }
 }
