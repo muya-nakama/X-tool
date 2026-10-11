@@ -19,7 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Prepare previous published version
-        run: python3 scripts/prepare_versions.py
+        run: |
+          python3 scripts/prepare_versions.py
+          python3 scripts/check_release.py
       - name: Read current version
         id: version
         run: |
@@ -52,7 +54,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   release:
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_release
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -83,32 +85,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           APP_VERSION: ${{ needs.build.outputs.version }}
         run: |
-          mv dist/app-debug.apk "dist/X-tool-v$APP_VERSION.apk"
+          mv dist/app-debug.apk "dist/MOVIE-AUDIO-TOOL-v$APP_VERSION.apk"
           previous_version=$(python3 -c "import json; print(json.load(open('old/version.json'))['version'])")
-          cat > /tmp/x-tool-release.md <<NOTES
-          アプリ内で最新版v$APP_VERSIONと前の配布版v$previous_versionの画面・取得処理を切り替えられるテスト版です。
-
-          - アプリ内ブラウザでXにログインし、複数アカウントを暗号化保存・選択・管理。
-          - ログイン状態はアプリ専用領域の .ログイン情報.txt に暗号化テキストとして保存。
-          - GitHubでアプリの更新を確認。
-          - 画面上部から新旧版を切り替え。保存中・エンジン更新中は切り替え不可。
-          - new/old の二枠を同梱。次の配布では今回の最新版がoldへ移ります。
-          - 旧版v1.00では当時のCookieファイル方式を使用。最新版の保存済みアカウントは維持。
-          - 保存先はDownload/X保存/動画 または スペース。ダウンロード履歴は残しません。
-
-          Android 10以降・arm64向け。AssetsのAPKを使用してください。
-          Xログイン、アカウント選択、版の切り替え、APKインストールの実機確認は未完了です。
-          Google・Apple経由のログインには対応しません。Xのユーザー名とパスワードを使用してください。
-          以前のインストール不具合が解消したと確認できた版ではありません。
-          debug署名が以前のビルドと異なる場合は再インストールが必要で、保存したアカウントは失われます。
-          Android設定・共通ライブラリ・取得エンジン本体は版の切り替えでは戻りません。
-          NOTES
+          python3 - <<'PY' > /tmp/x-tool-release.md
+          from pathlib import Path
+          text = Path('CHANGELOG.md').read_text()
+          print(text.split('\n## ', 2)[1].split('\n', 1)[1])
+          print('\nAndroid 10以降・arm64向け。APKを使用してください。実機確認は未完了です。')
+          PY
           target_sha=$(git rev-parse HEAD)
           if gh release view "v$APP_VERSION" >/dev/null 2>&1; then
-            gh release upload "v$APP_VERSION" "dist/X-tool-v$APP_VERSION.apk" --clobber
+            gh release upload "v$APP_VERSION" "dist/MOVIE-AUDIO-TOOL-v$APP_VERSION.apk" --clobber
             gh release edit "v$APP_VERSION" --notes-file /tmp/x-tool-release.md --prerelease --target "$target_sha"
           else
-            gh release create "v$APP_VERSION" "dist/X-tool-v$APP_VERSION.apk" --title "X-tool v$APP_VERSION（複数アカウント・new/old切替）" --notes-file /tmp/x-tool-release.md --prerelease --target "$target_sha"
+            gh release create "v$APP_VERSION" "dist/MOVIE-AUDIO-TOOL-v$APP_VERSION.apk" --title "MOVIE&AUDIO-TOOL v$APP_VERSION" --notes-file /tmp/x-tool-release.md --prerelease --target "$target_sha"
           fi
       - name: Publish update manifest after APK is available
         env:
@@ -117,8 +107,11 @@ jobs:
         run: |
           python3 - <<'PY' > /tmp/x-tool-update.json
           import json, os
+          from pathlib import Path
           version = os.environ['APP_VERSION']
-          print(json.dumps({'version': version, 'url': f'https://github.com/muya-nakama/X-tool/releases/tag/v{version}'}))
+          previous = json.loads(Path('old/version.json').read_text())['version']
+          notes = Path('CHANGELOG.md').read_text().split('\n## ', 2)[1].split('\n', 1)[1]
+          print(json.dumps({'version': version, 'url': f'https://github.com/muya-nakama/X-tool/releases/tag/v{version}', 'notes': notes, 'previous': {'version': previous, 'url': f'https://github.com/muya-nakama/X-tool/releases/tag/v{previous}'}}))
           PY
           manifest_sha=$(gh api "repos/$GITHUB_REPOSITORY/contents/app-update.json?ref=main" --jq .sha)
           manifest_content=$(base64 -w0 /tmp/x-tool-update.json)
