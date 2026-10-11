@@ -26,7 +26,7 @@ val generatePreviousVersion by tasks.registering {
                 }
             }
             // The legacy screen shares the encrypted store, but manages X accounts only.
-            if (source.name == "AccountStore.kt") {
+            if (source.name == "AccountStore.kt" && !text.contains("val service: String")) {
                 text = """
                     package jp.muya.xsaver.legacy
                     import android.content.Context
