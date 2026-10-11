@@ -7,6 +7,7 @@ import android.os.Bundle
 class LauncherActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        if (!UpdateActivity.running) java.io.File(cacheDir, "updates").deleteRecursively()
         val target = VersionSwitcher.target(this)
         if (target != MainActivity::class.java) StartupUpdates.check(this)
         val next = Intent(this, target).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)

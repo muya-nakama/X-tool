@@ -26,7 +26,7 @@ object VersionSwitcher {
         })
     }
     private fun show(activity: Activity, version: String) {
-        if (StateHub.state.busy || jp.muya.xsaver.legacy.StateHub.state.busy) {
+        if (StateHub.state.busy || jp.muya.xsaver.legacy.StateHub.state.busy || UpdateActivity.running) {
             Toast.makeText(activity, "保存・更新が終わってから切り替えてください。", Toast.LENGTH_LONG).show()
             return
         }
