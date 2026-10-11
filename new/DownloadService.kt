@@ -182,10 +182,7 @@ class DownloadService : Service() {
             val message = when {
                 networkInterrupted -> "Wi-Fi・有線接続が切れたため停止しました。通信量を確認して保存し直してください。"
                 cancelled || e is CancellationException || e is YoutubeDL.CanceledException -> "キャンセルしました。"
-                e.message.orEmpty().contains("auth", true) || e.message.orEmpty().contains("login", true) || e.message.orEmpty().contains("cookies", true) ->
-                    "ログインが必要です。「設定」からログインするか、別のアカウントを選んでください。保存済みなら「ログインし直す」で更新してください。"
-                e is IllegalStateException || e is IllegalArgumentException -> e.message ?: "保存できませんでした。"
-                else -> "取得できませんでした。リンク・通信状態を確認し、取得エンジンを更新して再度お試しください。"
+                else -> DownloadFailure.message(e)
             }
             result = DownloadState(message = message)
         } finally {
@@ -202,7 +199,13 @@ class DownloadService : Service() {
     private fun baseRequest(url: String?): YoutubeDLRequest {
         val request = (if (url == null) YoutubeDLRequest(emptyList()) else YoutubeDLRequest(url))
             .addOption("--ignore-config").addOption("--no-cache-dir").addOption("--no-playlist")
-            .addOption("--socket-timeout", 20).addOption("--retries", 3).addOption("--fragment-retries", 3)
+            // Timeout applies to a stalled network operation, not the complete video.
+            .addOption("--socket-timeout", 60)
+            .addOption("--retries", 5).addOption("--fragment-retries", 5)
+            .addOption("--extractor-retries", 3)
+            .addOption("--retry-sleep", "http:exp=1:10")
+            .addOption("--retry-sleep", "fragment:exp=1:10")
+            .addOption("--retry-sleep", "extractor:exp=1:10")
             .addOption("--abort-on-unavailable-fragments")
         cookieFile?.let { request.addOption("--cookies", it.absolutePath) }
         return request
