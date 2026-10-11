@@ -15,8 +15,10 @@ class LoginActivity : Activity() {
     private lateinit var save: Button
     private lateinit var note: TextView
     private var finishing = false
+    private lateinit var site: MediaSite
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
+        site = MediaLink.sites.find { it.id == intent.getStringExtra("service") } ?: MediaLink.site("x")
         // This activity has its own process and WebView directory; no external browser data is read.
         runCatching { WebView.setDataDirectorySuffix("x-login") }
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -29,7 +31,7 @@ class LoginActivity : Activity() {
             insets
         }
         note = TextView(this).apply {
-            text = "Xにログインしてください。完了後、下のボタンで保存します。\nGoogle・Apple経由で進めない場合は、Xのユーザー名とパスワードでログインしてください。"
+            text = "${site.name}の公式画面でログインし、下のボタンで保存してください。サービス側がアプリ内ログインを許可しない場合は利用できません。"
             setPadding(20, 16, 20, 16)
         }
         root.addView(note)
@@ -49,9 +51,8 @@ class LoginActivity : Activity() {
         view.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(web: WebView, request: WebResourceRequest): Boolean {
                 val uri = request.url
-                val allowed = uri.scheme == "https" && uri.host?.lowercase() in
-                    setOf("x.com", "www.x.com", "twitter.com", "www.twitter.com", "api.x.com")
-                if (!allowed) note.text = "このログイン方法はアプリ内で続行できません。Xのユーザー名でログインしてください。"
+                val allowed = uri.scheme == "https" && uri.host?.lowercase()?.let { site.owns(it) } == true
+                if (!allowed) note.text = "このログイン方法はアプリ内で続行できません。サービスの通常のログイン方法を使ってください。"
                 return !allowed
             }
             override fun onPageFinished(web: WebView, url: String) {
@@ -73,12 +74,18 @@ class LoginActivity : Activity() {
                 flush()
                 WebStorage.getInstance().deleteAllData()
                 view.clearCache(true)
-                if (!isFinishing && !isDestroyed) view.loadUrl("https://x.com/i/flow/login")
+                if (!isFinishing && !isDestroyed) view.loadUrl(site.loginUrl)
             }
         }
     }
     private fun session(): String? = runCatching {
-        SessionCookies.fromHeader(CookieManager.getInstance().getCookie("https://x.com/").orEmpty())
+        val rows = site.domains.flatMap { domain ->
+            val header = CookieManager.getInstance().getCookie("https://$domain/").orEmpty()
+            if (header.isBlank()) emptyList() else SessionCookies.fromHeader(header, site.id, domain, false).lineSequence().filter { !it.startsWith("#") && it.isNotBlank() }.toList()
+        }.distinct()
+        val names = rows.mapNotNull { it.split('\t').getOrNull(5) }.toSet()
+        require(if (site.id == "x") names.containsAll(site.authCookies) else names.any { it in site.authCookies })
+        "# Netscape HTTP Cookie File\n" + rows.joinToString("\n") + "\n"
     }.getOrNull()
     private fun saveAccount() {
         val cookies = session() ?: run { note.text = "ログインを完了してから保存してください。"; return }
@@ -93,10 +100,10 @@ class LoginActivity : Activity() {
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 if (label.text.toString().isBlank()) { label.error = "表示名を入力してください。"; return@setOnClickListener }
-                runCatching { AccountStore(this).save(label.text.toString(), cookies, intent.getStringExtra("accountId")) }
+                runCatching { AccountStore(this).save(label.text.toString(), cookies, intent.getStringExtra("accountId"), site.id) }
                     .onSuccess { id ->
                         dialog.dismiss()
-                        setResult(RESULT_OK, Intent().putExtra("accountId", id))
+                        setResult(RESULT_OK, Intent().putExtra("accountId", id).putExtra("service", site.id))
                         leave()
                     }.onFailure { note.text = "ログイン状態を保存できませんでした。登録は最大20件です。"; dialog.dismiss() }
             }

@@ -10,7 +10,8 @@ data class DownloadState(
     val message: String = "リンクを貼り付けて保存できます。",
     val progress: Int = -1,
     val file: Uri? = null,
-    val mime: String? = null
+    val mime: String? = null,
+    val preview: MediaInfo? = null
 )
 
 // Process memory only: no URL, history, or progress is written to disk.
