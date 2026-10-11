@@ -25,6 +25,21 @@ val generatePreviousVersion by tasks.registering {
                         "        VersionSwitcher.addTo(root, this, VersionSwitcher.PREVIOUS)\n        root.addView(text(\"X保存\", 30f)")
                 }
             }
+            // The legacy screen shares the encrypted store, but manages X accounts only.
+            if (source.name == "AccountStore.kt") {
+                text = """
+                    package jp.muya.xsaver.legacy
+                    import android.content.Context
+                    data class SavedAccount(val id: String, val label: String, val cookies: String)
+                    class AccountStore(context: Context) {
+                        private val store = jp.muya.xsaver.AccountStore(context)
+                        fun list() = store.list().filter { it.service == "x" }.map { SavedAccount(it.id, it.label, it.cookies) }
+                        fun save(label: String, cookies: String, existingId: String? = null) = store.save(label, cookies, existingId, "x")
+                        fun remove(id: String) { if (list().any { it.id == id }) store.remove(id) }
+                    }
+                """.trimIndent()
+            }
+            text = text.replace(" · 仲間六夜 feat. ChatGPT", "")
             target.resolve(source.name).writeText(text)
         }
         var manifest = file("src/main/AndroidManifest.xml").readText()
@@ -62,4 +77,5 @@ dependencies {
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
