@@ -14,7 +14,7 @@ data class DownloadState(
     val preview: MediaInfo? = null
 )
 
-// Process memory only: no URL, history, or progress is written to disk.
+// Screen state stays in memory. Successful file identities/locations are stored separately in DownloadHistoryStore.
 object StateHub {
     @Volatile var state = DownloadState()
         private set

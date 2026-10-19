@@ -143,15 +143,47 @@ class MainActivity : Activity() {
         modes.visibility = if (media == null) View.GONE else View.VISIBLE
         formats.visibility = modes.visibility
     }
+    private var checkingSavedFile = false
     private fun confirmDownload() {
+        if (checkingSavedFile || StateHub.state.busy) return
         val info = media ?: return
         val choice = visibleChoices.getOrNull(formats.selectedItemPosition) ?: return
+        val key = DownloadIdentity.selection(info.identity, choice.selector, choice.audio, choice.extension)
+        checkingSavedFile = true
+        save.isEnabled = false
+        Thread {
+            val lookup = runCatching { DownloadHistoryStore(this).inspect(key) }
+            runOnUiThread {
+                checkingSavedFile = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                save.isEnabled = !StateHub.state.busy && visibleChoices.isNotEmpty()
+                // Do not confirm a selection which the user changed while storage was being checked.
+                if (media !== info || visibleChoices.getOrNull(formats.selectedItemPosition) != choice || StateHub.state.busy) return@runOnUiThread
+                lookup.onSuccess { found ->
+                    when (found.presence) {
+                        DownloadPresence.EXISTS -> {
+                            val saved = found.file
+                            StateHub.publish(DownloadState(message = DownloadHistory.EXISTS_MESSAGE,
+                                file = saved?.let { Uri.parse(it.uri) }, mime = saved?.mime))
+                            AlertDialog.Builder(this).setTitle(DownloadHistory.EXISTS_MESSAGE)
+                                .setMessage(saved?.let { "${it.folder}${it.name}" }.orEmpty()).setPositiveButton("閉じる", null).show()
+                        }
+                        DownloadPresence.UNAVAILABLE -> toast(DownloadHistory.UNAVAILABLE_MESSAGE)
+                        else -> showDownloadConfirmation(info, choice, key, found.presence == DownloadPresence.REMOVED)
+                    }
+                }.onFailure { toast("ダウンロード記録を確認できませんでした。") }
+            }
+        }.start()
+    }
+    private fun showDownloadConfirmation(info: MediaInfo, choice: MediaChoice, key: String, removed: Boolean) {
         val warning = NetworkPolicy.needsWarning(this, choice.bytes)
-        AlertDialog.Builder(this).setTitle(if (warning) "通信量にご注意ください" else "ダウンロードしますか？")
-            .setMessage("${info.title}\n${choice.label}" + if (warning) "\n\nWi-Fi・有線接続ではありません。大きな通信量になる可能性があります。続けますか？" else "")
+        AlertDialog.Builder(this).setTitle(if (removed) "再ダウンロードしますか？" else if (warning) "通信量にご注意ください" else "ダウンロードしますか？")
+            .setMessage((if (removed) DownloadHistory.REMOVED_MESSAGE + "。\n\n" else "") + "${info.title}\n${choice.label}" +
+                if (warning) "\n\nWi-Fi・有線接続ではありません。大きな通信量になる可能性があります。続けますか？" else "")
             .setPositiveButton("はい") { _, _ ->
                 launch(Intent(this, DownloadService::class.java).setAction(DownloadService.DOWNLOAD).putExtra("url", info.url)
-                    .putExtra("accountId", selectedAccount(info.url)).putExtra("format", choice.selector).putExtra("audio", choice.audio).putExtra("mobileApproved", warning))
+                    .putExtra("accountId", selectedAccount(info.url)).putExtra("format", choice.selector).putExtra("audio", choice.audio)
+                    .putExtra("mobileApproved", warning).putExtra("removedApprovedKey", if (removed) key else null))
             }.setNegativeButton("戻る", null).show()
     }
     private fun launch(job: Intent) {
@@ -170,7 +202,7 @@ class MainActivity : Activity() {
             populateFormats(); loadThumbnail(m)
         }
         read.isEnabled = !s.busy; input.isEnabled = !s.busy
-        save.isEnabled = !s.busy && visibleChoices.isNotEmpty(); formats.isEnabled = !s.busy
+        save.isEnabled = !s.busy && !checkingSavedFile && visibleChoices.isNotEmpty(); formats.isEnabled = !s.busy
         videoMode.isEnabled = !s.busy && media?.choices?.any { !it.audio } == true
         audioMode.isEnabled = !s.busy && media?.choices?.any { it.audio } == true
         cancel.visibility = if (s.busy && engineStatus != "更新中…") View.VISIBLE else View.GONE
@@ -328,6 +360,6 @@ class MainActivity : Activity() {
     }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
     companion object {
-        const val CHANGELOG = "v1.05 · 2026/10/12\n・更新用の署名を固定する仕組み\n・アプリ内でAPKを取得して上書き更新\n・更新前に同じアプリ・署名か確認\n・v1.04以前は署名が異なるため、そのまま上書き不可\n\nv1.04 · 2026/10/12\n・通信の応答待ちを20秒から60秒へ\n・一時的な通信エラーの再試行を改善\n・取得に失敗した理由をわかりやすく表示\n\nv1.03 · 2026/10/11\n・MOVIE&AUDIO-TOOLへ名称変更\n・URLでサービスを自動判別\n・サムネイル、タイトル、長さ、画質と推定容量\n・動画／音声の形式選択、音声品質を保って保存\n・サービス別ログインとアカウント管理\n・起動時に本体・エンジンの更新を確認\n・最新版の項目は更新ボタン非表示\n・大容量保存時の通信警告\n・設定から旧版へ切替\n\nv1.02\n・Xの画面入力ログイン、複数アカウント管理\n・新旧版切替とアプリ更新確認\n\nv1.00\n・X動画、録音済みSpaceの保存"
+        const val CHANGELOG = "v1.06 · 2026/10/19\n・保存成功時に重複確認用の記録を端末内へ保持\n・同じ動画・音声・形式の保存先にファイルがあれば重複を通知\n・削除または移動済みなら案内して再ダウンロード\n・記録はこの版で保存したファイルから対象\n\nv1.05 · 2026/10/12\n・更新用の署名を固定する仕組み\n・アプリ内でAPKを取得して上書き更新\n・更新前に同じアプリ・署名か確認\n・v1.04以前は署名が異なるため、そのまま上書き不可\n\nv1.04 · 2026/10/12\n・通信の応答待ちを20秒から60秒へ\n・一時的な通信エラーの再試行を改善\n・取得に失敗した理由をわかりやすく表示\n\nv1.03 · 2026/10/11\n・MOVIE&AUDIO-TOOLへ名称変更\n・URLでサービスを自動判別\n・サムネイル、タイトル、長さ、画質と推定容量\n・動画／音声の形式選択、音声品質を保って保存\n・サービス別ログインとアカウント管理\n・起動時に本体・エンジンの更新を確認\n・最新版の項目は更新ボタン非表示\n・大容量保存時の通信警告\n・設定から旧版へ切替\n\nv1.02\n・Xの画面入力ログイン、複数アカウント管理\n・新旧版切替とアプリ更新確認\n\nv1.00\n・X動画、録音済みSpaceの保存"
     }
 }
