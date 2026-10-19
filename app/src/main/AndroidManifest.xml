@@ -21,6 +21,7 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+        <activity android:name=".AdvancedSettingsActivity" android:exported="false" />
         <activity android:name=".UpdateActivity" android:exported="false" android:configChanges="orientation|screenSize" />
         <provider android:name=".UpdateApkProvider" android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true" />
         <activity android:name=".MainActivity" android:exported="false" />
