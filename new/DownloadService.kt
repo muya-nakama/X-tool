@@ -53,6 +53,7 @@ class DownloadService : Service() {
         val selection = intent?.getStringExtra("format")
         val audioOnly = intent?.getBooleanExtra("audio", false) == true
         val mobileApproved = intent?.getBooleanExtra("mobileApproved", false) == true
+        val removedApprovedKey = intent?.getStringExtra("removedApprovedKey")
         val url = MediaLink.parse(intent?.getStringExtra("url").orEmpty())
         val accountId = intent?.getStringExtra("accountId")
         intent?.removeExtra("url")
@@ -65,11 +66,11 @@ class DownloadService : Service() {
         startForeground(NOTICE, notification(first))
         StateHub.publish(DownloadState(true, first))
         wake = (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xsaver:download").apply { acquire(6 * 60 * 60 * 1000L) }
-        Thread({ synchronized(EngineGate.lock) { runJob(url, updating, accountId, analyzing, selection, audioOnly, mobileApproved) } }, "x-saver-job").start()
+        Thread({ synchronized(EngineGate.lock) { runJob(url, updating, accountId, analyzing, selection, audioOnly, mobileApproved, removedApprovedKey) } }, "x-saver-job").start()
         return START_NOT_STICKY
     }
     private fun checkCancel() { if (cancelled) throw CancellationException() }
-    private fun runJob(url: String?, updating: Boolean, accountId: String?, analyzing: Boolean, selection: String?, audioOnly: Boolean, mobileApproved: Boolean) {
+    private fun runJob(url: String?, updating: Boolean, accountId: String?, analyzing: Boolean, selection: String?, audioOnly: Boolean, mobileApproved: Boolean, removedApprovedKey: String?) {
         val tasks = File(cacheDir, "downloads")
         val published = mutableListOf<Uri>()
         var finished = false
@@ -106,6 +107,24 @@ class DownloadService : Service() {
             }
             val choice = media.choices.find { it.selector == selection && it.audio == audioOnly }
                 ?: throw IllegalStateException("選択した形式が変わりました。動画を読み込み直してください。")
+            val history = DownloadHistoryStore(this)
+            val historyKey = DownloadIdentity.selection(media.identity, choice.selector, choice.audio, choice.extension)
+            val lookup = history.inspect(historyKey)
+            when (lookup.presence) {
+                DownloadPresence.EXISTS -> {
+                    result = DownloadState(message = DownloadHistory.EXISTS_MESSAGE,
+                        file = lookup.file?.let { Uri.parse(it.uri) }, mime = lookup.file?.mime)
+                    finished = true
+                    return
+                }
+                DownloadPresence.REMOVED -> if (removedApprovedKey != historyKey) {
+                    result = DownloadState(message = DownloadHistory.REMOVED_MESSAGE + "。もう一度ダウンロードを押すと再取得できます。", preview = media)
+                    finished = true
+                    return
+                }
+                DownloadPresence.UNAVAILABLE -> throw IllegalStateException(DownloadHistory.UNAVAILABLE_MESSAGE)
+                DownloadPresence.NEW -> Unit
+            }
             if (NetworkPolicy.needsWarning(this, choice.bytes) && !mobileApproved)
                 throw IllegalStateException("Wi-Fi・有線接続ではありません。もう一度読み込み、通信量の確認後に保存してください。")
             val metadata = File(task, "info.json").apply { writeText(info) }
@@ -176,8 +195,11 @@ class DownloadService : Service() {
             checkCancel()
             for (uri in published) contentResolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
             finished = true
+            val recorded = runCatching {
+                history.record(SavedDownload(historyKey, published.mapIndexed { i, uri -> history.describe(uri, mediaMime(files[i])) }, System.currentTimeMillis()))
+            }.isSuccess
             val message = if (files.size == 1) "${files.first().name}\nダウンロードしました。" else "${files.size}件のファイルをダウンロードしました。"
-            result = DownloadState(message = message, file = published.first(), mime = mime)
+            result = DownloadState(message = message + if (recorded) "" else "\n重複確認用の記録を保存できませんでした。", file = published.first(), mime = mime)
         } catch (e: Exception) {
             val message = when {
                 networkInterrupted -> "Wi-Fi・有線接続が切れたため停止しました。通信量を確認して保存し直してください。"
