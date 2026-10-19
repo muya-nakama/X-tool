@@ -23,6 +23,13 @@ val generatePreviousVersion by tasks.registering {
                     .replace("startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(remote.url)))", "jp.muya.xsaver.UpdateActivity.open(this)")
                     .replace("更新ページを開く", "更新する")
                     .replace("text(\"v\${BuildConfig.VERSION_NAME}\", 12f)", "text(\"v\${VersionSwitcher.PREVIOUS}\", 12f)")
+                // Apply the same private-account entry policy to the previous screen.
+                text = text.replace("MediaLink.sites.forEach { site ->", "MediaLink.sites.filterNot { it.id == \"pornhub\" }.forEach { site ->")
+                if (!text.contains("AdvancedSettingsActivity.addEntry")) {
+                    text = text.replace("        body.addView(text(\"アプリ本体：", "        jp.muya.xsaver.AdvancedSettingsActivity.addEntry(body, this)\n        body.addView(text(\"アプリ本体：")
+                } else {
+                    text = text.replace("        AdvancedSettingsActivity.addEntry", "        jp.muya.xsaver.AdvancedSettingsActivity.addEntry")
+                }
                 if (!text.contains("VersionSwitcher.addTo")) {
                     text = text.replace("        root.addView(text(\"X保存\", 30f)",
                         "        VersionSwitcher.addTo(root, this, VersionSwitcher.PREVIOUS)\n        root.addView(text(\"X保存\", 30f)")
