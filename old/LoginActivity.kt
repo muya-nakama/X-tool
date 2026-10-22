@@ -15,6 +15,7 @@ class LoginActivity : Activity() {
     private lateinit var save: Button
     private lateinit var note: TextView
     private var finishing = false
+    private var accountDialog: AlertDialog? = null
     private lateinit var site: MediaSite
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
@@ -22,6 +23,8 @@ class LoginActivity : Activity() {
         // This activity has its own process and WebView directory; no external browser data is read.
         runCatching { WebView.setDataDirectorySuffix("x-login") }
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        // A private login screen must never be restored past the password gate.
+        if (site.id == "pornhub" && state != null) { finish(); return }
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.setOnApplyWindowInsetsListener { view, insets ->
             if (android.os.Build.VERSION.SDK_INT >= 30) {
@@ -88,6 +91,7 @@ class LoginActivity : Activity() {
         "# Netscape HTTP Cookie File\n" + rows.joinToString("\n") + "\n"
     }.getOrNull()
     private fun saveAccount() {
+        if (finishing) return
         val cookies = session() ?: run { note.text = "ログインを完了してから保存してください。"; return }
         val label = EditText(this).apply {
             hint = "例：メイン、ゲーム用、@ユーザー名"
@@ -97,8 +101,12 @@ class LoginActivity : Activity() {
         val dialog = AlertDialog.Builder(this).setTitle("アカウントの表示名")
             .setMessage("自分が見分けやすい名前で保存できます。")
             .setView(label).setPositiveButton("保存", null).setNegativeButton("戻る", null).create()
+        accountDialog = dialog
+        dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        dialog.setOnDismissListener { accountDialog = null }
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (finishing) return@setOnClickListener
                 if (label.text.toString().isBlank()) { label.error = "表示名を入力してください。"; return@setOnClickListener }
                 runCatching { AccountStore(this).save(label.text.toString(), cookies, intent.getStringExtra("accountId"), site.id) }
                     .onSuccess { id ->
@@ -122,6 +130,15 @@ class LoginActivity : Activity() {
     }
     @Deprecated("Platform back navigation")
     override fun onBackPressed() { leave() }
+    override fun onPause() {
+        if (::site.isInitialized && site.id == "pornhub" && !isFinishing) {
+            web?.visibility = View.GONE
+            accountDialog?.dismiss()
+            leave()
+            finish()
+        }
+        super.onPause()
+    }
     override fun onDestroy() {
         web?.apply { stopLoading(); clearHistory(); clearCache(true); removeAllViews(); destroy() }
         web = null
