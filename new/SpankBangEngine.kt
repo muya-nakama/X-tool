@@ -29,7 +29,7 @@ object SpankBangEngine {
     private fun home(context: Context, checkCancel: () -> Unit): File {
         val base = File(context.noBackupFilesDir, "spankbang-transport")
         val ready = File(base, "revision")
-        if (ready.isFile && ready.readText() == REVISION + ":2") return base
+        if (ready.isFile && ready.readText() == REVISION + ":3") return base
         base.deleteRecursively(); check(base.mkdirs())
         val payload = File(context.applicationInfo.nativeLibraryDir, "libsbpythonpayload.so")
         try {
@@ -63,13 +63,17 @@ object SpankBangEngine {
                 }
             }
             RuntimeLibraries.restore(File(base, "usr/lib"))
-            ready.writeText(REVISION + ":2")
+            val engine = File(base, "yt-dlp")
+            context.assets.open("spankbang-yt-dlp").use { source -> engine.outputStream().use { source.copyTo(it) } }
+            val engineHash = MessageDigest.getInstance("SHA-256").digest(engine.readBytes()).joinToString("") { "%02x".format(it) }
+            check(engineHash == "b7af77f686e95f7845ce8d09d21957718febb8b48b30555adb9dd2292ad7bf14")
+            ready.writeText(REVISION + ":3")
             return base
         } catch (e: Exception) { base.deleteRecursively(); throw e }
     }
     fun execute(context: Context, request: YoutubeDLRequest, id: String, checkCancel: () -> Unit,
                 callback: ((Float, Long, String) -> Unit)? = null): String {
-        val engine = File(context.noBackupFilesDir, "youtubedl-android/yt-dlp/yt-dlp")
+        val engine = File(home(context, checkCancel), "yt-dlp")
         check(engine.isFile) { "取得エンジンの準備ができていません。" }
         return run(context, listOf("-c", wrapper, engine.absolutePath) + request.buildCommand() +
             listOf("--impersonate", "chrome", "--ffmpeg-location", File(context.applicationInfo.nativeLibraryDir, "libffmpeg.so").absolutePath,
