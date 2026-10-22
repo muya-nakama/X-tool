@@ -96,8 +96,13 @@ class DownloadService : Service() {
                     ?: throw IllegalStateException("選択したアカウントが見つかりません。アカウントを選び直してください。")
             }
             if (session != null) cookieFile = File(task, "session.txt").apply { writeText(SessionCookies.filter(session, MediaLink.detect(url!!)?.id ?: "x")) }
-            val infoRequest = baseRequest(url!!).addOption("--dump-single-json").addOption("--skip-download")
-            val info = YoutubeDL.execute(infoRequest, processId, null).out
+            val gofile = if (GofileCenter.supports(url!!)) GofileCenter.resolve(url, ::checkCancel) else null
+            checkCancel()
+            val infoRequest = baseRequest(gofile?.url ?: url).addOption("--dump-single-json").addOption("--skip-download")
+            if (gofile != null) infoRequest.addOption("--referer", GofileCenter.REFERER)
+            val extracted = YoutubeDL.execute(infoRequest, processId, null).out
+            val info = if (gofile == null) extracted else gofile.annotate(JSONObject(extracted))
+                .put("webpage_url", url).toString()
             checkCancel()
             val media = MediaFormats.parse(url, JSONObject(info))
             if (analyzing) {
@@ -134,6 +139,7 @@ class DownloadService : Service() {
                 .addOption("--windows-filenames")
                 .addOption("--concurrent-fragments", 4)
                 .addOption("--no-mtime")
+            if (gofile != null) request.addOption("--referer", GofileCenter.REFERER)
             request.addOption("-f", choice.selector)
             if (audioOnly) request.addOption("-x").addOption("--audio-format", "best")
             else if (choice.selector.contains('+')) request.addOption("--merge-output-format", "mkv")
