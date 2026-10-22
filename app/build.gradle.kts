@@ -61,7 +61,10 @@ val generatePreviousVersion by tasks.registering {
         previousManifest.get().asFile.apply { parentFile.mkdirs(); writeText(manifest) }
     }
 }
-tasks.named("preBuild").configure { dependsOn(generatePreviousVersion) }
+val prepareSpankBangRuntime by tasks.registering(Exec::class) {
+    commandLine("python3", rootProject.file("scripts/prepare_spankbang_runtime.py").absolutePath)
+}
+tasks.named("preBuild").configure { dependsOn(generatePreviousVersion, prepareSpankBangRuntime) }
 android {
     namespace = "jp.muya.xsaver"
     compileSdk = 35
@@ -72,7 +75,8 @@ android {
         versionCode = (currentInfo["versionCode"] as Number).toInt()
         versionName = currentInfo["version"].toString()
         buildConfigField("String", "PREVIOUS_VERSION", "\"${previousInfo["version"]}\"")
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += (System.getenv("APP_RUNTIME_ABI") ?: "arm64-v8a") }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
         create("persistent") {
@@ -99,11 +103,14 @@ android {
     buildFeatures { buildConfig = true }
     sourceSets["main"].java.setSrcDirs(listOf("../shell", "../new", previousSources))
     sourceSets["main"].manifest.srcFile(previousManifest)
+    sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("generated/spankbang/jniLibs"))
     packaging { jniLibs.useLegacyPackaging = true }
 }
 dependencies {
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }
