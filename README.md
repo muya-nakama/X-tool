@@ -1,8 +1,8 @@
-# MOVIE&AUDIO-TOOL v1.08
+# MOVIE&AUDIO-TOOL v1.09
 
 リンクを貼って、動画や音声をスマホに保存するAndroidアプリです。旧名はX-toolです。
 
-**[アプリの配布ページ](https://github.com/muya-nakama/X-tool/releases/tag/v1.08)**
+**[アプリの配布ページ](https://github.com/muya-nakama/X-tool/releases/tag/v1.09)**
 
 Android 10以降・arm64の端末用です。配布ページのAPKを開いてインストールしてください。コードやZIP、Termuxは不要です。
 
@@ -60,7 +60,7 @@ GoFile Centerの個別動画ページのリンクを、そのまま貼り付け�
 
 **v1.04以前からの移行は別です。以前の署名鍵が保存されていないため、そのまま上書きできる保証はありません。今のアプリを削除しないでください。** 署名が違う更新ファイルはアプリが止めます。固定署名による更新は、固定署名の版を導入した後の更新が対象です。
 
-「設定」→「使用する版」で、最新版v1.08と前の配布版v1.07を切り替えられます。取得エンジンやAndroid設定は共通です。保存中・更新中は切替できません。
+「設定」→「使用する版」で、最新版v1.09と前の配布版v1.08を切り替えられます。取得エンジンやAndroid設定は共通です。保存中・更新中は切替できません。
 
 Wi-Fi・有線以外で100MB以上の保存をする場合は、毎回確認を表示します。警告する容量は設定で変更できます。容量不明の場合も確認します。大容量保存中にWi-Fiが切れた場合は処理を止め、再確認してから保存し直します。
 
@@ -77,3 +77,7 @@ GitHub ActionsでユニットテストとAPK作成を実行します。新しい
 JDK 17 / Gradle 8.11.1 / Android SDK 35。`python3 scripts/prepare_versions.py` → `python3 scripts/check_release.py` → `gradle :app:testDebugUnitTest :app:assembleDebug`。
 
 ライブラリ：youtubedl-android 0.18.1（GPL-3.0）、yt-dlp（Unlicenseほか依存ライセンス）、FFmpeg（同梱ビルドのライセンス）。アプリのソースはGPL-3.0-or-laterです。[LICENSE](LICENSE)
+
+## SpankBangの試験対応
+
+SpankBangのリンクでは追加の通信部品を自動で使います。ログイン項目の追加はありません。取得を拒否される場合もあり、実際の動画保存は端末で確認が必要です。既存サイトは従来の取得処理を使います。追加部品の出典は[通信部品の情報](docs/spankbang-transport.md)を参照してください。
