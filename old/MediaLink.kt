@@ -33,5 +33,5 @@ object MediaLink {
         }
         return null
     }
-    fun folder(url: String): String = detect(url)?.name ?: URI(url).host.orEmpty().replace(Regex("[^A-Za-z0-9.-]"), "_")
+    fun folder(url: String): String = if (GofileCenter.supports(url)) "GoFile Center" else detect(url)?.name ?: URI(url).host.orEmpty().replace(Regex("[^A-Za-z0-9.-]"), "_")
 }
