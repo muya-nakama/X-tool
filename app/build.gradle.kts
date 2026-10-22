@@ -104,6 +104,7 @@ android {
     sourceSets["main"].java.setSrcDirs(listOf("../shell", "../new", previousSources))
     sourceSets["main"].manifest.srcFile(previousManifest)
     sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("generated/spankbang/jniLibs"))
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/spankbang/assets"))
     packaging { jniLibs.useLegacyPackaging = true }
 }
 dependencies {
