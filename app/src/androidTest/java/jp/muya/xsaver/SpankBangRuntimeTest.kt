@@ -12,6 +12,7 @@ import org.junit.runner.RunWith
 class SpankBangRuntimeTest {
     @Test fun nativeBrowserTransportAndExistingEngine() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        try {
         val output = SpankBangEngine.selfCheck(context)
         assertTrue(output.contains("SPANKBANG_TRANSPORT_OK"))
         YoutubeDL.init(context)
@@ -20,5 +21,10 @@ class SpankBangRuntimeTest {
         assertTrue(targets.lowercase().contains("chrome"))
         val existing = YoutubeDL.execute(YoutubeDLRequest(emptyList()).addOption("--version"), "existing-engine", null)
         assertTrue(existing.out.trim().isNotEmpty())
+        } catch (e: Exception) {
+            // The smoke test only uses example.com and empty commands; no user data is present.
+            println("TRANSPORT_TEST_FAILURE: " + e.message.orEmpty().replace("\n", " | "))
+            throw e
+        }
     }
 }
