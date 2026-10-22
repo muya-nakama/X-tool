@@ -4,7 +4,6 @@ import android.content.Context
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import java.io.File
 import java.security.MessageDigest
-import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -30,7 +29,7 @@ object SpankBangEngine {
     private fun home(context: Context, checkCancel: () -> Unit): File {
         val base = File(context.noBackupFilesDir, "spankbang-transport")
         val ready = File(base, "revision")
-        if (ready.isFile && ready.readText() == REVISION) return base
+        if (ready.isFile && ready.readText() == REVISION + ":2") return base
         base.deleteRecursively(); check(base.mkdirs())
         val payload = File(context.applicationInfo.nativeLibraryDir, "libsbpythonpayload.so")
         try {
@@ -63,7 +62,8 @@ object SpankBangEngine {
                     }
                 }
             }
-            ready.writeText(REVISION)
+            RuntimeLibraries.restore(File(base, "usr/lib"))
+            ready.writeText(REVISION + ":2")
             return base
         } catch (e: Exception) { base.deleteRecursively(); throw e }
     }
