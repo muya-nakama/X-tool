@@ -46,5 +46,25 @@ def prepare():
                 time.sleep(attempt + 1)
         print(f'Verified isolated runtime: {abi}/{target.name}')
 
+    engine = ROOT / 'app/build/generated/spankbang/assets/spankbang-yt-dlp'
+    engine.parent.mkdir(parents=True, exist_ok=True)
+    digest = 'b7af77f686e95f7845ce8d09d21957718febb8b48b30555adb9dd2292ad7bf14'
+    if not engine.exists() or hashlib.sha256(engine.read_bytes()).hexdigest() != digest:
+        temp = engine.with_suffix('.part')
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen('https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp', timeout=60) as source, temp.open('wb') as out:
+                    shutil.copyfileobj(source, out)
+                if hashlib.sha256(temp.read_bytes()).hexdigest() != digest:
+                    raise ValueError('SpankBang engine checksum mismatch')
+                temp.replace(engine)
+                break
+            except (OSError, TimeoutError):
+                temp.unlink(missing_ok=True)
+                if attempt == 2:
+                    raise
+                time.sleep(attempt + 1)
+    print('Verified isolated yt-dlp: 2026.10.21')
+
 if __name__ == '__main__':
     prepare()
