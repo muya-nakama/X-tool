@@ -14,6 +14,9 @@ class GofileCenterTest {
         assertTrue(GofileCenter.supports("https://www.gofile.center/abc123"))
         assertFalse(GofileCenter.supports("https://gofile.center.evil.test/abc123"))
         assertFalse(GofileCenter.supports("https://gofile.io/d/abc123"))
+        assertTrue(GofileCenter.supports("https://gofile.diy/abc123"))
+        assertTrue(GofileCenter.supports("https://www.gofile.diy/abc123"))
+        assertFalse(GofileCenter.supports("https://gofile.diy.evil.test/abc123"))
         assertEquals("GoFile Center", MediaLink.folder("https://gofile.center/abc123"))
     }
     @Test fun discoversBackendAndRequestsOnlyPublicMetadata() {
@@ -30,6 +33,23 @@ class GofileCenterTest {
         assertEquals(3, calls.size)
         assertEquals(473.0, media.duration, 0.0)
         assertEquals("https://media.example.test/master.m3u8", media.url)
+    }
+    @Test fun diyUsesItsOwnPageDomainAndReferer() {
+        val calls = mutableListOf<String>()
+        val media = GofileCenter.resolve("https://www.gofile.diy/abc123", read = { url ->
+            calls.add(url)
+            when (calls.size) {
+                1 -> "<script src='/assets/index-test.js'></script>"
+                2 -> "const origin = 'https://example.gofile.mov';"
+                else -> response().toString()
+            }
+        })
+        assertEquals("https://gofile.diy/abc123", calls[0])
+        assertEquals("https://gofile.diy/assets/index-test.js", calls[1])
+        assertTrue(calls[2].endsWith("&domain=gofile.diy"))
+        assertEquals("https://gofile.diy/", media.referer)
+        assertEquals("GoFile Center", MediaLink.folder("https://gofile.diy/abc123"))
+        assertEquals("https://gofile.center/", GofileCenter.referer("https://gofile.center/abc123"))
     }
     @Test fun supportsStringEncodedObjects() {
         val r = response()
