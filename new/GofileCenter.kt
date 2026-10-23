@@ -8,7 +8,7 @@ import java.net.URI
 import java.net.URL
 import java.util.Locale
 
-data class GofileCenterMedia(val id: String, val url: String, val title: String, val duration: Double) {
+data class GofileCenterMedia(val id: String, val url: String, val title: String, val duration: Double, val referer: String = GofileCenter.REFERER) {
     fun annotate(info: JSONObject): JSONObject {
         info.put("id", id).put("extractor_key", "GofileCenter").put("extractor", "gofilecenter")
             .put("title", title).put("uploader", "GoFile Center")
@@ -20,7 +20,12 @@ data class GofileCenterMedia(val id: String, val url: String, val title: String,
 /** Public landing-page metadata only. No login, tracking requests, media bytes or cache. */
 object GofileCenter {
     const val REFERER = "https://gofile.center/"
-    fun supports(url: String): Boolean = runCatching { URI(url).host?.lowercase(Locale.ROOT) in setOf("gofile.center", "www.gofile.center") }.getOrDefault(false)
+    private val domains = setOf("gofile.center", "gofile.diy")
+    fun referer(url: String): String {
+        require(supports(url))
+        return "https://${URI(url).host.lowercase(Locale.ROOT).removePrefix("www.")}/"
+    }
+    fun supports(url: String): Boolean = runCatching { URI(url).host?.lowercase(Locale.ROOT)?.removePrefix("www.") in domains }.getOrDefault(false)
     fun linkId(url: String): String {
         require(supports(url))
         val uri = URI(url)
@@ -29,10 +34,11 @@ object GofileCenter {
         require(id.matches(Regex("[A-Za-z0-9_-]{1,120}"))) { "GoFile Centerの動画ページのリンクを指定してください。" }
         return if (id.length > 6 && id.startsWith("a")) id.substring(1) else id
     }
-    fun resolve(url: String, checkCancel: () -> Unit = {}, read: (String) -> String = { get(it, checkCancel) }): GofileCenterMedia {
+    fun resolve(url: String, checkCancel: () -> Unit = {}, read: (String) -> String = { get(it, checkCancel, referer(url)) }): GofileCenterMedia {
         val id = linkId(url)
         checkCancel()
-        val pageUrl = REFERER + URI(url).path.orEmpty().trim('/')
+        val pageReferer = referer(url)
+        val pageUrl = pageReferer + URI(url).path.orEmpty().trim('/')
         val html = read(pageUrl)
         val script = Regex("<script[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
             .findAll(html).map { it.groupValues[1] }.firstOrNull { it.startsWith("/assets/index-") && it.endsWith(".js") }
@@ -43,8 +49,8 @@ object GofileCenter {
         val origin = Regex("https://[A-Za-z0-9.-]+\\.gofile\\.mov(?=[`\"'/])").find(javascript)?.value
             ?: throw IllegalStateException("GoFile Centerの取得先を確認できませんでした。アプリの更新を確認してください。")
         checkCancel()
-        val response = JSONObject(read("$origin/app-api/flow/land-page/getInfo?externalLinks=$id&domain=gofile.center"))
-        return parse(id, response)
+        val response = JSONObject(read("$origin/app-api/flow/land-page/getInfo?externalLinks=$id&domain=${URI(pageReferer).host}"))
+        return parse(id, response).copy(referer = pageReferer)
     }
     private fun obj(value: Any?): JSONObject = when (value) {
         is JSONObject -> value
@@ -79,11 +85,11 @@ object GofileCenter {
         val title = file.optString("name").ifBlank { file.optString("title") }.ifBlank { "GoFile Center $id" }.take(300)
         return GofileCenterMedia(id, target, title, duration)
     }
-    private fun get(url: String, checkCancel: () -> Unit): String {
+    private fun get(url: String, checkCancel: () -> Unit, referer: String): String {
         var last: IOException? = null
         repeat(3) { attempt ->
             checkCancel()
-            try { return readOnce(url, checkCancel) }
+            try { return readOnce(url, checkCancel, referer) }
             catch (e: IOException) {
                 last = e
                 checkCancel()
@@ -92,16 +98,16 @@ object GofileCenter {
         }
         throw last ?: IOException("GoFile Center connection failed")
     }
-    private fun readOnce(url: String, checkCancel: () -> Unit): String {
+    private fun readOnce(url: String, checkCancel: () -> Unit, referer: String): String {
         val uri = URI(url)
         require(uri.scheme == "https" && uri.userInfo == null && uri.port in setOf(-1, 443))
         val host = uri.host?.lowercase(Locale.ROOT).orEmpty()
-        require(host in setOf("gofile.center", "www.gofile.center") || host.endsWith(".gofile.mov"))
+        require(host.removePrefix("www.") in domains || host.endsWith(".gofile.mov"))
         val c = URL(url).openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 30000; c.readTimeout = 60000; c.instanceFollowRedirects = false; c.useCaches = false
             c.setRequestProperty("User-Agent", "Mozilla/5.0")
-            c.setRequestProperty("Referer", REFERER)
+            c.setRequestProperty("Referer", referer)
             if (c.responseCode in setOf(401, 403)) throw IllegalStateException("GoFile Centerに取得を拒否されました。元のページの公開範囲や制限を確認してください。")
             if (c.responseCode != 200) throw IOException("GoFile Center HTTP ${c.responseCode}")
             return c.inputStream.use { input ->
