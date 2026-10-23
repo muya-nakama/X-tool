@@ -43,7 +43,7 @@ class DownloadService : Service() {
             if (working) {
                 cancelled = true
                 StateHub.publish(DownloadState(true, "キャンセルしています…"))
-                YoutubeDL.destroyProcessById(processId)
+                cancelProcesses()
             } else stopSelf()
             return START_NOT_STICKY
         }
@@ -68,6 +68,10 @@ class DownloadService : Service() {
         wake = (getSystemService(POWER_SERVICE) as PowerManager).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "xsaver:download").apply { acquire(6 * 60 * 60 * 1000L) }
         Thread({ synchronized(EngineGate.lock) { runJob(url, updating, accountId, analyzing, selection, audioOnly, mobileApproved, removedApprovedKey) } }, "x-saver-job").start()
         return START_NOT_STICKY
+    }
+    private fun cancelProcesses() {
+        YoutubeDL.destroyProcessById(processId)
+        SpankBangEngine.cancel(processId)
     }
     private fun checkCancel() { if (cancelled) throw CancellationException() }
     private fun runJob(url: String?, updating: Boolean, accountId: String?, analyzing: Boolean, selection: String?, audioOnly: Boolean, mobileApproved: Boolean, removedApprovedKey: String?) {
@@ -100,7 +104,9 @@ class DownloadService : Service() {
             checkCancel()
             val infoRequest = baseRequest(gofile?.url ?: url).addOption("--dump-single-json").addOption("--skip-download")
             if (gofile != null) infoRequest.addOption("--referer", GofileCenter.REFERER)
-            val extracted = YoutubeDL.execute(infoRequest, processId, null).out
+            val spankbang = SpankBangPolicy.supports(url)
+            val extracted = if (spankbang) SpankBangEngine.execute(this, infoRequest, processId, ::checkCancel)
+                else YoutubeDL.execute(infoRequest, processId, null).out
             val info = if (gofile == null) extracted else gofile.annotate(JSONObject(extracted))
                 .put("webpage_url", url).toString()
             checkCancel()
@@ -146,13 +152,13 @@ class DownloadService : Service() {
             show(if (audioOnly) "音声をダウンロードしています…" else "動画をダウンロードしています…")
             checkCancel()
             var lastNotice = 0L
-            YoutubeDL.execute(request, processId) { percent, _, _ ->
+            val progress: (Float, Long, String) -> Unit = { percent, _, _ ->
                 // Raw downloader output may contain URLs: do not display or log it.
                 if (!mobileApproved && !NetworkPolicy.trusted(this) && (choice.bytes == null || choice.bytes >= NetworkPolicy.limit(this))) {
                     networkInterrupted = true
                     cancelled = true
-                    YoutubeDL.destroyProcessById(processId)
-                } else if (cancelled) YoutubeDL.destroyProcessById(processId)
+                    cancelProcesses()
+                } else if (cancelled) cancelProcesses()
                 else {
                     val p = percent.toInt().coerceIn(0, 100)
                     val message = if (p == 100) "取得データを仕上げています…" else "ダウンロードしています… $p%"
@@ -163,6 +169,8 @@ class DownloadService : Service() {
                     }
                 }
             }
+            if (spankbang) SpankBangEngine.execute(this, request, processId, ::checkCancel, progress)
+            else YoutubeDL.execute(request, processId, progress)
             checkCancel()
             val files = output.listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("mp4", "mkv", "webm", "m4a", "mp3", "opus", "ogg", "flac", "wav", "aac", "mov", "mka") && it.length() > 0 }.orEmpty()
             if (files.isEmpty()) throw IllegalStateException("保存できるファイルが生成されませんでした。")
@@ -264,13 +272,13 @@ class DownloadService : Service() {
     }
     override fun onTimeout(startId: Int, fgsType: Int) {
         cancelled = true
-        YoutubeDL.destroyProcessById(processId)
+        cancelProcesses()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
     override fun onDestroy() {
         cancelled = true
-        YoutubeDL.destroyProcessById(processId)
+        cancelProcesses()
         if (wake?.isHeld == true) wake?.release()
         super.onDestroy()
     }
