@@ -103,7 +103,7 @@ class DownloadService : Service() {
             val gofile = if (GofileCenter.supports(url!!)) GofileCenter.resolve(url, ::checkCancel) else null
             checkCancel()
             val infoRequest = baseRequest(gofile?.url ?: url).addOption("--dump-single-json").addOption("--skip-download")
-            if (gofile != null) infoRequest.addOption("--referer", GofileCenter.REFERER)
+            if (gofile != null) infoRequest.addOption("--referer", gofile.referer)
             val spankbang = SpankBangPolicy.supports(url)
             val extracted = if (spankbang) SpankBangEngine.execute(this, infoRequest, processId, ::checkCancel)
                 else YoutubeDL.execute(infoRequest, processId, null).out
@@ -145,7 +145,7 @@ class DownloadService : Service() {
                 .addOption("--windows-filenames")
                 .addOption("--concurrent-fragments", 4)
                 .addOption("--no-mtime")
-            if (gofile != null) request.addOption("--referer", GofileCenter.REFERER)
+            if (gofile != null) request.addOption("--referer", gofile.referer)
             request.addOption("-f", choice.selector)
             if (audioOnly) request.addOption("-x").addOption("--audio-format", "best")
             else if (choice.selector.contains('+')) request.addOption("--merge-output-format", "mkv")
