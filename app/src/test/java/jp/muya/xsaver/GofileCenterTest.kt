@@ -51,6 +51,26 @@ class GofileCenterTest {
         assertEquals("GoFile Center", MediaLink.folder("https://gofile.diy/abc123"))
         assertEquals("https://gofile.center/", GofileCenter.referer("https://gofile.center/abc123"))
     }
+    @Test fun twfilesUsesItsOwnBackendAndIdentity() {
+        val calls = mutableListOf<String>()
+        val media = GofileCenter.resolve("https://twfiles.com/xyz123", read = { url ->
+            calls.add(url)
+            when (calls.size) {
+                1 -> "<script src='/assets/index-test.js'></script>"
+                2 -> "function origin(){return validate('https://example.fun800.click', window.location.origin)}"
+                else -> response().toString()
+            }
+        })
+        assertEquals("https://twfiles.com/xyz123", calls[0])
+        assertEquals("https://example.fun800.click/app-api/flow/land-page/getInfo?externalLinks=xyz123&domain=twfiles.com", calls[2])
+        assertEquals("https://twfiles.com/", media.referer)
+        assertEquals("TwFiles", MediaLink.folder("https://twfiles.com/xyz123"))
+        assertEquals("TwFiles", media.annotate(JSONObject()).getString("extractor_key"))
+        assertEquals("TwFiles", media.annotate(JSONObject()).getString("uploader"))
+        assertTrue(GofileCenter.supports("https://www.twfiles.com/xyz123"))
+        assertFalse(GofileCenter.supports("https://twifiles.com/xyz123"))
+        assertFalse(GofileCenter.supports("https://twfiles.com.evil.test/xyz123"))
+    }
     @Test fun supportsStringEncodedObjects() {
         val r = response()
         val data = r.getJSONObject("data")
