@@ -2,6 +2,8 @@ package jp.muya.xsaver
 
 /** Classify in memory; never expose or persist raw output containing URLs or cookies. */
 object DownloadFailure {
+    fun unsupported(error: Exception): Boolean = generateSequence<Throwable>(error) { it.cause }.take(8)
+        .any { it.message.orEmpty().let { text -> text.contains("unsupported url", true) || text.contains("no suitable extractor", true) } }
     fun message(error: Exception): String {
         val detail = generateSequence<Throwable>(error) { it.cause }.take(8)
             .joinToString("\n") { it.message.orEmpty() }.lowercase(java.util.Locale.ROOT)

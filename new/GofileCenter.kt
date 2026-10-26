@@ -3,6 +3,7 @@ package jp.muya.xsaver
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.InetAddress
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
@@ -10,8 +11,8 @@ import java.util.Locale
 
 data class GofileCenterMedia(val id: String, val url: String, val title: String, val duration: Double, val referer: String = GofileCenter.REFERER, val service: String = "GoFile Center") {
     fun annotate(info: JSONObject): JSONObject {
-        info.put("id", id).put("extractor_key", if (service == "TwFiles") "TwFiles" else "GofileCenter")
-            .put("extractor", if (service == "TwFiles") "twfiles" else "gofilecenter")
+        info.put("id", id).put("extractor_key", if (service in setOf("TwFiles", "TwimgFile")) service else if (service.contains('.')) service else "GofileCenter")
+            .put("extractor", if (service in setOf("TwFiles", "TwimgFile")) service.lowercase(Locale.ROOT) else if (service.contains('.')) service else "gofilecenter")
             .put("title", title).put("uploader", service)
         if (info.optDouble("duration", 0.0) <= 0 && duration > 0) info.put("duration", duration)
         return info
@@ -21,8 +22,27 @@ data class GofileCenterMedia(val id: String, val url: String, val title: String,
 /** Public landing-page metadata only. No login, tracking requests, media bytes or cache. */
 object GofileCenter {
     const val REFERER = "https://gofile.center/"
-    private val domains = setOf("gofile.center", "gofile.diy", "twfiles.com")
-    fun serviceName(url: String): String = if (URI(url).host.orEmpty().lowercase(Locale.ROOT).removePrefix("www.") == "twfiles.com") "TwFiles" else "GoFile Center"
+    private val domains = setOf("gofile.center", "gofile.diy", "twfiles.com", "twimgfile.com")
+    fun serviceName(url: String): String = when (URI(url).host.orEmpty().lowercase(Locale.ROOT).removePrefix("www.")) {
+        "twfiles.com" -> "TwFiles"
+        "twimgfile.com" -> "TwimgFile"
+        else -> "GoFile Center"
+    }
+    fun compatibleCandidate(url: String): Boolean = runCatching {
+        val uri = URI(url)
+        val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+        uri.scheme == "https" && uri.userInfo == null && uri.port in setOf(-1, 443) &&
+            host.contains('.') && !host.endsWith(".local") && !host.endsWith(".localhost") &&
+            !host.contains(':') && !host.matches(Regex("[0-9.]+")) &&
+            uri.path.orEmpty().trim('/').matches(Regex("[A-Za-z0-9_-]{1,120}"))
+    }.getOrDefault(false)
+    /** Only after the common engine reports an unsupported URL. No login or tracking. */
+    fun resolveCompatible(url: String, checkCancel: () -> Unit = {}, read: ((String) -> String)? = null): GofileCenterMedia {
+        require(compatibleCandidate(url))
+        val root = "https://${URI(url).host.lowercase(Locale.ROOT).removePrefix("www.")}/"
+        val id = URI(url).path.trim('/').let { if (it.length > 6 && it.startsWith("a")) it.substring(1) else it }
+        return resolvePage(url, id, root, URI(root).host, checkCancel, read ?: { get(it, checkCancel, root) })
+    }
     fun referer(url: String): String {
         require(supports(url))
         return "https://${URI(url).host.lowercase(Locale.ROOT).removePrefix("www.")}/"
@@ -37,9 +57,10 @@ object GofileCenter {
         return if (id.length > 6 && id.startsWith("a")) id.substring(1) else id
     }
     fun resolve(url: String, checkCancel: () -> Unit = {}, read: (String) -> String = { get(it, checkCancel, referer(url)) }): GofileCenterMedia {
-        val id = linkId(url)
+        return resolvePage(url, linkId(url), referer(url), serviceName(url), checkCancel, read)
+    }
+    private fun resolvePage(url: String, id: String, pageReferer: String, service: String, checkCancel: () -> Unit, read: (String) -> String): GofileCenterMedia {
         checkCancel()
-        val pageReferer = referer(url)
         val pageUrl = pageReferer + URI(url).path.orEmpty().trim('/')
         val html = read(pageUrl)
         val script = Regex("<script[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
@@ -52,7 +73,7 @@ object GofileCenter {
             ?: throw IllegalStateException("このサイトの取得先を確認できませんでした。アプリの更新を確認してください。")
         checkCancel()
         val response = JSONObject(read("$origin/app-api/flow/land-page/getInfo?externalLinks=$id&domain=${URI(pageReferer).host}"))
-        return parse(id, response, serviceName(url)).copy(referer = pageReferer)
+        return parse(id, response, service).copy(referer = pageReferer)
     }
     private fun obj(value: Any?): JSONObject = when (value) {
         is JSONObject -> value
@@ -68,7 +89,7 @@ object GofileCenter {
         val rules = obj(data.opt("rules") ?: outer.opt("rules") ?: info.opt("rules"))
         when (rules.optString("status", "0")) {
             "1", "2", "3" -> throw IllegalStateException("このサイトのリンクが無効・期限切れ、または動画が公開されていません。")
-            "4", "5" -> throw IllegalStateException("このこのサイトのリンクにはパスワードが必要です。パスワード付きリンクは現在未対応です。")
+            "4", "5" -> throw IllegalStateException("このサイトのリンクにはパスワードが必要です。パスワード付きリンクは現在未対応です。")
             "0", "" -> Unit
             else -> throw IllegalStateException("このサイトの公開状態を確認できませんでした。元のページを確認してください。")
         }
@@ -104,7 +125,12 @@ object GofileCenter {
         val uri = URI(url)
         require(uri.scheme == "https" && uri.userInfo == null && uri.port in setOf(-1, 443))
         val host = uri.host?.lowercase(Locale.ROOT).orEmpty()
-        require(host.removePrefix("www.") in domains || host.endsWith(".gofile.mov") || host.endsWith(".fun800.click"))
+        require(host == URI(referer).host || host.removePrefix("www.") in domains || host.endsWith(".gofile.mov") || host.endsWith(".fun800.click"))
+        require(InetAddress.getAllByName(host).all { address ->
+            !address.isAnyLocalAddress && !address.isLoopbackAddress && !address.isLinkLocalAddress &&
+                !address.isSiteLocalAddress && !address.isMulticastAddress &&
+                !(address.address.size == 16 && (address.address[0].toInt() and 0xfe) == 0xfc)
+        }) { "公開サイトのアドレスを指定してください。" }
         val c = URL(url).openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 30000; c.readTimeout = 60000; c.instanceFollowRedirects = false; c.useCaches = false

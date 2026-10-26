@@ -100,13 +100,25 @@ class DownloadService : Service() {
                     ?: throw IllegalStateException("選択したアカウントが見つかりません。アカウントを選び直してください。")
             }
             if (session != null) cookieFile = File(task, "session.txt").apply { writeText(SessionCookies.filter(session, MediaLink.detect(url!!)?.id ?: "x")) }
-            val gofile = if (GofileCenter.supports(url!!)) GofileCenter.resolve(url, ::checkCancel) else null
+            var gofile = if (GofileCenter.supports(url!!)) GofileCenter.resolve(url, ::checkCancel) else null
             checkCancel()
             val infoRequest = baseRequest(gofile?.url ?: url).addOption("--dump-single-json").addOption("--skip-download")
             if (gofile != null) infoRequest.addOption("--referer", gofile.referer)
             val spankbang = SpankBangPolicy.supports(url)
-            val extracted = if (spankbang) SpankBangEngine.execute(this, infoRequest, processId, ::checkCancel)
+            val extracted = try {
+                if (spankbang) SpankBangEngine.execute(this, infoRequest, processId, ::checkCancel)
                 else YoutubeDL.execute(infoRequest, processId, null).out
+            } catch (error: Exception) {
+                checkCancel()
+                if (gofile != null || spankbang || !DownloadFailure.unsupported(error) || !GofileCenter.compatibleCandidate(url)) throw error
+                show("このサイトの動画情報を確認しています…")
+                val compatible = try { GofileCenter.resolveCompatible(url, ::checkCancel) }
+                    catch (probeError: Exception) { checkCancel(); throw error }
+                gofile = compatible
+                val fallback = baseRequest(compatible.url).addOption("--dump-single-json").addOption("--skip-download")
+                    .addOption("--referer", compatible.referer)
+                YoutubeDL.execute(fallback, processId, null).out
+            }
             val info = if (gofile == null) extracted else gofile.annotate(JSONObject(extracted))
                 .put("webpage_url", url).toString()
             checkCancel()
