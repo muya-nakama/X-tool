@@ -71,6 +71,58 @@ class GofileCenterTest {
         assertFalse(GofileCenter.supports("https://twifiles.com/xyz123"))
         assertFalse(GofileCenter.supports("https://twfiles.com.evil.test/xyz123"))
     }
+    @Test fun twimgfileUsesItsOwnBackendAndIdentity() {
+        val calls = mutableListOf<String>()
+        val media = GofileCenter.resolve("https://twimgfile.com/xyz123", read = { url ->
+            calls.add(url)
+            when (calls.size) {
+                1 -> "<script src='/assets/index-test.js'></script>"
+                2 -> "function origin(){return validate('https://example.fun800.click', window.location.origin)}"
+                else -> response().toString()
+            }
+        })
+        assertEquals("https://twimgfile.com/xyz123", calls[0])
+        assertEquals("https://example.fun800.click/app-api/flow/land-page/getInfo?externalLinks=xyz123&domain=twimgfile.com", calls[2])
+        assertEquals("https://twimgfile.com/", media.referer)
+        assertEquals("TwimgFile", MediaLink.folder("https://twimgfile.com/xyz123"))
+        assertEquals("TwimgFile", media.annotate(JSONObject()).getString("extractor_key"))
+        assertEquals("TwimgFile", media.annotate(JSONObject()).getString("uploader"))
+        assertTrue(GofileCenter.supports("https://www.twimgfile.com/xyz123"))
+        assertFalse(GofileCenter.supports("https://twimgfiles.com/xyz123"))
+        assertFalse(GofileCenter.supports("https://twimgfile.com.evil.test/xyz123"))
+    }
+    @Test fun compatibleSiteUsesOnlyItsOwnPageAndRecognizedBackend() {
+        val calls = mutableListOf<String>()
+        val media = GofileCenter.resolveCompatible("https://public.example/xyz123", read = { url ->
+            calls.add(url)
+            when (calls.size) {
+                1 -> "<script src='/assets/index-test.js'></script>"
+                2 -> "const origin = 'https://example.fun800.click';"
+                else -> response().toString()
+            }
+        })
+        assertEquals(3, calls.size)
+        assertEquals("https://public.example/xyz123", calls[0])
+        assertTrue(calls[2].endsWith("&domain=public.example"))
+        assertEquals("https://public.example/", media.referer)
+        assertEquals("public.example", media.annotate(JSONObject()).getString("extractor_key"))
+        assertFalse(GofileCenter.compatibleCandidate("https://127.0.0.1/xyz123"))
+        assertFalse(GofileCenter.compatibleCandidate("https://server.local/xyz123"))
+        assertFalse(GofileCenter.compatibleCandidate("http://public.example/xyz123"))
+        assertFalse(GofileCenter.compatibleCandidate("https://user:pass@public.example/xyz123"))
+    }
+    @Test(expected = IllegalStateException::class) fun compatibleSiteRejectsUnrecognizedBackend() {
+        GofileCenter.resolveCompatible("https://public.example/xyz123", read = { url ->
+            if (url.endsWith(".js")) "const origin = 'https://unknown.example';"
+            else "<script src='/assets/index-test.js'></script>"
+        })
+    }
+    @Test fun fallbackIsLimitedToUnsupportedErrors() {
+        assertTrue(DownloadFailure.unsupported(Exception("ERROR: Unsupported URL")))
+        assertFalse(DownloadFailure.unsupported(Exception("HTTP Error 403")))
+        assertFalse(DownloadFailure.unsupported(Exception("Login required")))
+        assertFalse(DownloadFailure.unsupported(Exception("Connection timed out")))
+    }
     @Test fun supportsStringEncodedObjects() {
         val r = response()
         val data = r.getJSONObject("data")
