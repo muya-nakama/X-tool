@@ -6,7 +6,6 @@ import android.app.AlertDialog
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -19,8 +18,6 @@ import android.widget.*
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 
 class MainActivity : Activity() {
     private lateinit var input: EditText
@@ -29,6 +26,8 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var details: TextView
     private lateinit var progress: ProgressBar
+    private var thumbnailJob: Thread? = null
+    private lateinit var thumbnailStatus: TextView
     private lateinit var thumbnail: ImageView
     private lateinit var formats: Spinner
     private lateinit var modes: RadioGroup
@@ -91,6 +90,7 @@ class MainActivity : Activity() {
         read = button("動画・音声を読み込む", ::analyze); body.addView(read)
         thumbnail = ImageView(this).apply { adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER; visibility = View.GONE }
         body.addView(thumbnail, LinearLayout.LayoutParams(-1, dp(180)))
+        thumbnailStatus = text("", 13f).apply { visibility = View.GONE }; body.addView(thumbnailStatus)
         details = text(""); body.addView(details)
         modes = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         videoMode = RadioButton(this).apply { id = View.generateViewId(); text = "動画"; setTextColor(Color.WHITE) }
@@ -122,6 +122,8 @@ class MainActivity : Activity() {
         if (intent.action == Intent.ACTION_SEND) { input.setText(MediaLink.parse(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()).orEmpty()); intent.removeExtra(Intent.EXTRA_TEXT) }
     }
     private fun clearPreview() {
+        thumbnailJob?.interrupt(); thumbnailJob = null
+        if (::thumbnailStatus.isInitialized) thumbnailStatus.visibility = View.GONE
         media = null
         if (::details.isInitialized) { details.text = ""; thumbnail.setImageDrawable(null); thumbnail.visibility = View.GONE; populateFormats() }
     }
@@ -212,29 +214,38 @@ class MainActivity : Activity() {
         progress.isIndeterminate = s.progress < 0; if (s.progress >= 0) progress.progress = s.progress
         refreshSettings()
     }
+    override fun onDestroy() {
+        thumbnailJob?.interrupt(); thumbnailJob = null
+        super.onDestroy()
+    }
     private fun loadThumbnail(info: MediaInfo) {
+        thumbnailJob?.interrupt()
         thumbnail.setImageDrawable(null); thumbnail.visibility = View.GONE
-        val url = info.thumbnail ?: return
-        Thread {
-            val bitmap = runCatching {
-                val c = URL(url).openConnection() as HttpURLConnection
-                try {
-                    c.connectTimeout = 8000; c.readTimeout = 8000
-                    c.inputStream.use { stream ->
-                        val buffer = java.io.ByteArrayOutputStream(); val chunk = ByteArray(8192)
-                        while (true) { val n = stream.read(chunk); if (n < 0) break; require(buffer.size() + n <= 5 * 1024 * 1024); buffer.write(chunk, 0, n) }
-                        val bytes = buffer.toByteArray()
-                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                        require(bounds.outWidth in 1..30000 && bounds.outHeight in 1..30000)
-                        var sample = 1
-                        while (bounds.outWidth / sample > 1200 || bounds.outHeight / sample > 1200) sample *= 2
-                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+        thumbnail.isClickable = false
+        thumbnailStatus.visibility = View.VISIBLE
+        thumbnailStatus.text = if (info.thumbnails.isEmpty()) "サムネイルは配信元から提供されていません。" else "サムネイルを読み込んでいます…"
+        if (info.thumbnails.isEmpty()) return
+        thumbnailJob = Thread {
+            val bitmap = ThumbnailLoader.load(info)
+            if (Thread.currentThread().isInterrupted) return@Thread
+            runOnUiThread {
+                if (isDestroyed || media !== info) return@runOnUiThread
+                if (bitmap == null) {
+                    thumbnailStatus.text = "サムネイルを表示できませんでした。動画の保存は続けられます。"
+                } else {
+                    thumbnail.setImageBitmap(bitmap); thumbnail.visibility = View.VISIBLE
+                    thumbnail.contentDescription = "${info.title}のサムネイル。タップで拡大"
+                    thumbnailStatus.text = "タップすると画像を大きく表示します。"
+                    thumbnail.setOnClickListener {
+                        val image = ImageView(this).apply {
+                            setImageBitmap(bitmap); adjustViewBounds = true; scaleType = ImageView.ScaleType.FIT_CENTER
+                            contentDescription = "${info.title}のサムネイル"
+                        }
+                        AlertDialog.Builder(this).setTitle("サムネイル").setView(image).setPositiveButton("閉じる", null).show()
                     }
-                } finally { c.disconnect() }
-            }.getOrNull()
-            runOnUiThread { if (!isDestroyed && media === info && bitmap != null) { thumbnail.setImageBitmap(bitmap); thumbnail.visibility = View.VISIBLE } }
-        }.start()
+                }
+            }
+        }.apply { start() }
     }
     private fun showSettings() {
         val body = root(); settingsBody = body
@@ -361,6 +372,6 @@ class MainActivity : Activity() {
     }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
     companion object {
-        const val CHANGELOG = "v1.12 · 2026/10/26\n・TwimgFile（twimgfile.com）の動画リンクに対応\n・同じ仕組みのサイトを自動で追加確認\n・保存先をTwimgFileに分けて表示\n・前の版はv1.11へ切替可能\n\nv1.11 · 2026/10/25\n・TwFiles（twfiles.com）の個別動画リンクに対応\n・保存アプリの案内を経由せず動画情報を取得\n・保存先にTwFilesを表示\n・前の版はv1.10へ切替可能\n\nv1.10 · 2026/10/23\n・gofile.diyの動画リンクに対応\n・リンク元に合わせた通信処理へ変更\n・前の版はv1.09へ切替可能\n\nv1.09 · 2026/10/22\n・SpankBang専用の通信処理を追加（試験対応）\n・既存サイトの取得処理とログイン情報を維持\n・前の版はv1.08へ切替可能\n\nv1.08 · 2026/10/22\n・GoFile Centerの個別動画リンクに対応\n・リンクから動画と音声の形式を自動取得\n・パスワード付き・期限切れ・フォルダーは理由を表示\n・ログイン情報と詳細設定、保存記録を保持\n\nv1.07 · 2026/10/19\n・詳細設定を追加し、初回にパスワードを設定\n・次回からはパスワードで開き、画面を離れると再ロック\n・通常画面のログイン一覧を整理\n・ログイン情報・設定・保存記録を維持\n\nv1.06 · 2026/10/19\n・保存成功時に重複確認用の記録を端末内へ保持\n・同じ動画・音声・形式の保存先にファイルがあれば重複を通知\n・削除または移動済みなら案内して再ダウンロード\n・記録はこの版で保存したファイルから対象\n\nv1.05 · 2026/10/12\n・更新用の署名を固定する仕組み\n・アプリ内でAPKを取得して上書き更新\n・更新前に同じアプリ・署名か確認\n・v1.04以前は署名が異なるため、そのまま上書き不可\n\nv1.04 · 2026/10/12\n・通信の応答待ちを20秒から60秒へ\n・一時的な通信エラーの再試行を改善\n・取得に失敗した理由をわかりやすく表示\n\nv1.03 · 2026/10/11\n・MOVIE&AUDIO-TOOLへ名称変更\n・URLでサービスを自動判別\n・サムネイル、タイトル、長さ、画質と推定容量\n・動画／音声の形式選択、音声品質を保って保存\n・サービス別ログインとアカウント管理\n・起動時に本体・エンジンの更新を確認\n・最新版の項目は更新ボタン非表示\n・大容量保存時の通信警告\n・設定から旧版へ切替\n\nv1.02\n・Xの画面入力ログイン、複数アカウント管理\n・新旧版切替とアプリ更新確認\n\nv1.00\n・X動画、録音済みSpaceの保存"
+        const val CHANGELOG = "v1.13 · 2026/11/01\n・動画のサムネイル表示を改善\n・GoFile・TwFiles系の表紙画像に対応\n・サムネイルをタップすると拡大表示\n・前の版はv1.12へ切替可能\n\nv1.12 · 2026/10/26\n・TwimgFile（twimgfile.com）の動画リンクに対応\n・同じ仕組みのサイトを自動で追加確認\n・保存先をTwimgFileに分けて表示\n・前の版はv1.11へ切替可能\n\nv1.11 · 2026/10/25\n・TwFiles（twfiles.com）の個別動画リンクに対応\n・保存アプリの案内を経由せず動画情報を取得\n・保存先にTwFilesを表示\n・前の版はv1.10へ切替可能\n\nv1.10 · 2026/10/23\n・gofile.diyの動画リンクに対応\n・リンク元に合わせた通信処理へ変更\n・前の版はv1.09へ切替可能\n\nv1.09 · 2026/10/22\n・SpankBang専用の通信処理を追加（試験対応）\n・既存サイトの取得処理とログイン情報を維持\n・前の版はv1.08へ切替可能\n\nv1.08 · 2026/10/22\n・GoFile Centerの個別動画リンクに対応\n・リンクから動画と音声の形式を自動取得\n・パスワード付き・期限切れ・フォルダーは理由を表示\n・ログイン情報と詳細設定、保存記録を保持\n\nv1.07 · 2026/10/19\n・詳細設定を追加し、初回にパスワードを設定\n・次回からはパスワードで開き、画面を離れると再ロック\n・通常画面のログイン一覧を整理\n・ログイン情報・設定・保存記録を維持\n\nv1.06 · 2026/10/19\n・保存成功時に重複確認用の記録を端末内へ保持\n・同じ動画・音声・形式の保存先にファイルがあれば重複を通知\n・削除または移動済みなら案内して再ダウンロード\n・記録はこの版で保存したファイルから対象\n\nv1.05 · 2026/10/12\n・更新用の署名を固定する仕組み\n・アプリ内でAPKを取得して上書き更新\n・更新前に同じアプリ・署名か確認\n・v1.04以前は署名が異なるため、そのまま上書き不可\n\nv1.04 · 2026/10/12\n・通信の応答待ちを20秒から60秒へ\n・一時的な通信エラーの再試行を改善\n・取得に失敗した理由をわかりやすく表示\n\nv1.03 · 2026/10/11\n・MOVIE&AUDIO-TOOLへ名称変更\n・URLでサービスを自動判別\n・サムネイル、タイトル、長さ、画質と推定容量\n・動画／音声の形式選択、音声品質を保って保存\n・サービス別ログインとアカウント管理\n・起動時に本体・エンジンの更新を確認\n・最新版の項目は更新ボタン非表示\n・大容量保存時の通信警告\n・設定から旧版へ切替\n\nv1.02\n・Xの画面入力ログイン、複数アカウント管理\n・新旧版切替とアプリ更新確認\n\nv1.00\n・X動画、録音済みSpaceの保存"
     }
 }

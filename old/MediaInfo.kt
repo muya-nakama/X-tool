@@ -4,7 +4,7 @@ import org.json.JSONObject
 import java.util.Locale
 
 data class MediaChoice(val selector: String, val label: String, val audio: Boolean, val bytes: Long?, val extension: String)
-data class MediaInfo(val url: String, val title: String, val thumbnail: String?, val duration: Double, val choices: List<MediaChoice>, val uploader: String, val identity: String = "")
+data class MediaInfo(val url: String, val title: String, val thumbnail: String?, val duration: Double, val choices: List<MediaChoice>, val uploader: String, val identity: String = "", val thumbnails: List<String> = listOfNotNull(thumbnail), val thumbnailHeaders: Map<String, String> = emptyMap())
 object MediaFormats {
     fun size(f: JSONObject, duration: Double): Long? {
         for (key in listOf("filesize", "filesize_approx")) { val n = f.optDouble(key, 0.0); if (n > 0 && n.isFinite()) return n.toLong() }
@@ -62,7 +62,7 @@ object MediaFormats {
             choices.add(MediaChoice(a.getString("format_id"), "${audioLabel(a)} · ${sizeLabel(bytes)}（取得通信量・音声抽出）", true, bytes, "best"))
         }
         require(choices.isNotEmpty()) { "保存できる動画・音声の形式が見つかりませんでした。" }
-        return MediaInfo(url, json.optString("title", "動画・音声"), json.optString("thumbnail").takeIf { it.startsWith("https://") }, duration, choices,
-            json.optString("uploader_id", json.optString("uploader", "投稿者不明")).replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").take(80).trim('.', ' '), DownloadIdentity.media(json, url))
+        return MediaInfo(url, json.optString("title", "動画・音声"), ThumbnailPolicy.sources(json).firstOrNull(), duration, choices,
+            json.optString("uploader_id", json.optString("uploader", "投稿者不明")).replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").take(80).trim('.', ' '), DownloadIdentity.media(json, url), ThumbnailPolicy.sources(json), ThumbnailPolicy.headers(json, url))
     }
 }

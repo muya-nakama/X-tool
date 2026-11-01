@@ -9,12 +9,16 @@ import java.net.URI
 import java.net.URL
 import java.util.Locale
 
-data class GofileCenterMedia(val id: String, val url: String, val title: String, val duration: Double, val referer: String = GofileCenter.REFERER, val service: String = "GoFile Center") {
+data class GofileCenterMedia(val id: String, val url: String, val title: String, val duration: Double, val referer: String = GofileCenter.REFERER, val service: String = "GoFile Center", val thumbnail: String? = null) {
     fun annotate(info: JSONObject): JSONObject {
         info.put("id", id).put("extractor_key", if (service in setOf("TwFiles", "TwimgFile")) service else if (service.contains('.')) service else "GofileCenter")
             .put("extractor", if (service in setOf("TwFiles", "TwimgFile")) service.lowercase(Locale.ROOT) else if (service.contains('.')) service else "gofilecenter")
             .put("title", title).put("uploader", service)
         if (info.optDouble("duration", 0.0) <= 0 && duration > 0) info.put("duration", duration)
+        thumbnail?.let { info.put("thumbnail", it) }
+        val headers = info.optJSONObject("http_headers") ?: JSONObject()
+        headers.put("Referer", referer)
+        info.put("http_headers", headers)
         return info
     }
 }
@@ -106,7 +110,8 @@ object GofileCenter {
         }
         val duration = file.optString("length", "").toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 } ?: 0.0
         val title = file.optString("name").ifBlank { file.optString("title") }.ifBlank { "$service $id" }.take(300)
-        return GofileCenterMedia(id, target, title, duration, service = service)
+        val cover = listOf("coverImage", "thumbnail", "cover", "previewUrl").mapNotNull { ThumbnailPolicy.imageUrl(file.optString(it)) }.firstOrNull()
+        return GofileCenterMedia(id, target, title, duration, service = service, thumbnail = cover)
     }
     private fun get(url: String, checkCancel: () -> Unit, referer: String): String {
         var last: IOException? = null
