@@ -17,8 +17,8 @@ object AppUpdates {
         return false
     }
     fun status(remote: String, local: String): String = when {
-        newer(remote, local) -> "v$remoteへ更新できます（現在v$local）"
-        newer(local, remote) -> "配布情報はv$remote・本体はv$localです。もう一度確認してください。"
+        newer(remote, local) -> "v${remote}へ更新できます（現在v$local）"
+        newer(local, remote) -> "配布情報はv$remote・本体はv${local}です。もう一度確認してください。"
         else -> "最新版（v$local）"
     }
     private fun read(url: String): String {
