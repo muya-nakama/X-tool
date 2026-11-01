@@ -16,14 +16,21 @@ object AppUpdates {
         }
         return false
     }
-    fun check(): AppVersions {
-        val connection = URL("https://raw.githubusercontent.com/muya-nakama/X-tool/main/app-update.json")
+    fun status(remote: String, local: String): String = when {
+        newer(remote, local) -> "v$remoteへ更新できます（現在v$local）"
+        newer(local, remote) -> "配布情報はv$remote・本体はv$localです。もう一度確認してください。"
+        else -> "最新版（v$local）"
+    }
+    private fun read(url: String): String {
+        val connection = URL(url)
             .openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 10000; connection.readTimeout = 10000
             connection.useCaches = false
+            connection.setRequestProperty("Cache-Control", "no-cache, no-store, max-age=0")
+            connection.setRequestProperty("Pragma", "no-cache")
             require(connection.responseCode == 200)
-            val body = connection.inputStream.use { input ->
+            return connection.inputStream.use { input ->
                 val buffer = java.io.ByteArrayOutputStream()
                 val chunk = ByteArray(1024)
                 while (true) {
@@ -34,20 +41,22 @@ object AppUpdates {
                 }
                 buffer.toString("UTF-8")
             }
-            val json = JSONObject(body)
-            val version = json.getString("version")
-            require(version.matches(Regex("[0-9]{1,3}(\\.[0-9]{1,3}){1,2}")))
-            val url = json.getString("url")
-            require(url == "https://github.com/muya-nakama/X-tool/releases/tag/v$version")
-            val previous = json.optJSONObject("previous")?.let { old ->
-                val v = old.getString("version")
-                require(v.matches(Regex("[0-9]{1,3}(\\.[0-9]{1,3}){1,2}")) && newer(version, v))
-                val link = old.getString("url")
-                require(link == "https://github.com/muya-nakama/X-tool/releases/tag/v$v")
-                AppUpdate(v, link)
-            }
-            val apk = json.optJSONObject("apk")?.let { jp.muya.xsaver.UpdatePackage.parse(version, it) }
-            return AppVersions(version, url, previous, json.optString("notes"), apk)
         } finally { connection.disconnect() }
+    }
+    fun check(read: (String) -> String = ::read): AppVersions {
+        val json = JSONObject(read("https://raw.githubusercontent.com/muya-nakama/X-tool/main/app-update.json?check=${java.util.UUID.randomUUID()}"))
+        val version = json.getString("version")
+        require(version.matches(Regex("[0-9]{1,3}(\\.[0-9]{1,3}){1,2}")))
+        val url = json.getString("url")
+        require(url == "https://github.com/muya-nakama/X-tool/releases/tag/v$version")
+        val previous = json.optJSONObject("previous")?.let { old ->
+            val v = old.getString("version")
+            require(v.matches(Regex("[0-9]{1,3}(\\.[0-9]{1,3}){1,2}")) && newer(version, v))
+            val link = old.getString("url")
+            require(link == "https://github.com/muya-nakama/X-tool/releases/tag/v$v")
+            AppUpdate(v, link)
+        }
+        val apk = json.optJSONObject("apk")?.let { jp.muya.xsaver.UpdatePackage.parse(version, it) }
+        return AppVersions(version, url, previous, json.optString("notes"), apk)
     }
 }
