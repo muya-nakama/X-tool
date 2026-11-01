@@ -21,6 +21,7 @@ import org.json.JSONObject
 
 class MainActivity : Activity() {
     private lateinit var input: EditText
+    private lateinit var preview: Button
     private lateinit var read: Button
     private lateinit var save: Button
     private lateinit var status: TextView
@@ -92,6 +93,12 @@ class MainActivity : Activity() {
         body.addView(thumbnail, LinearLayout.LayoutParams(-1, dp(180)))
         thumbnailStatus = text("", 13f).apply { visibility = View.GONE }; body.addView(thumbnailStatus)
         details = text(""); body.addView(details)
+        preview = button("プレビューを再生") {
+            val info = media ?: return@button
+            val plan = (if (modes.checkedRadioButtonId == audioMode.id) info.audioPreview else info.preview) ?: return@button
+            jp.muya.xsaver.PreviewActivity.open(this, info.title, plan.video?.url, plan.audio?.url,
+                plan.video?.mime, plan.audio?.mime, plan.video?.headers.orEmpty(), plan.audio?.headers.orEmpty())
+        }; body.addView(preview)
         modes = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
         videoMode = RadioButton(this).apply { id = View.generateViewId(); text = "動画"; setTextColor(Color.WHITE) }
         audioMode = RadioButton(this).apply { id = View.generateViewId(); text = "音声のみ"; setTextColor(Color.WHITE) }
@@ -142,6 +149,10 @@ class MainActivity : Activity() {
         visibleChoices = media?.choices?.filter { it.audio == (modes.checkedRadioButtonId == audioMode.id) }.orEmpty()
         formats.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, visibleChoices.map { it.label })
         save.isEnabled = visibleChoices.isNotEmpty() && !StateHub.state.busy
+        val plan = if (modes.checkedRadioButtonId == audioMode.id) media?.audioPreview else media?.preview
+        preview.visibility = if (media == null) View.GONE else View.VISIBLE
+        preview.isEnabled = plan != null && !StateHub.state.busy
+        preview.text = if (plan == null) "この形式はプレビューできません" else "プレビューを再生"
         modes.visibility = if (media == null) View.GONE else View.VISIBLE
         formats.visibility = modes.visibility
     }
@@ -203,6 +214,7 @@ class MainActivity : Activity() {
             modes.check(if (videoMode.isEnabled) videoMode.id else audioMode.id)
             populateFormats(); loadThumbnail(m)
         }
+        preview.isEnabled = !s.busy && (if (modes.checkedRadioButtonId == audioMode.id) media?.audioPreview else media?.preview) != null
         read.isEnabled = !s.busy; input.isEnabled = !s.busy
         save.isEnabled = !s.busy && !checkingSavedFile && visibleChoices.isNotEmpty(); formats.isEnabled = !s.busy
         videoMode.isEnabled = !s.busy && media?.choices?.any { !it.audio } == true
@@ -372,6 +384,6 @@ class MainActivity : Activity() {
     }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
     companion object {
-        const val CHANGELOG = "v1.13 · 2026/11/01\n・動画のサムネイル表示を改善\n・GoFile・TwFiles系の表紙画像に対応\n・サムネイルをタップすると拡大表示\n・前の版はv1.12へ切替可能\n\nv1.12 · 2026/10/26\n・TwimgFile（twimgfile.com）の動画リンクに対応\n・同じ仕組みのサイトを自動で追加確認\n・保存先をTwimgFileに分けて表示\n・前の版はv1.11へ切替可能\n\nv1.11 · 2026/10/25\n・TwFiles（twfiles.com）の個別動画リンクに対応\n・保存アプリの案内を経由せず動画情報を取得\n・保存先にTwFilesを表示\n・前の版はv1.10へ切替可能\n\nv1.10 · 2026/10/23\n・gofile.diyの動画リンクに対応\n・リンク元に合わせた通信処理へ変更\n・前の版はv1.09へ切替可能\n\nv1.09 · 2026/10/22\n・SpankBang専用の通信処理を追加（試験対応）\n・既存サイトの取得処理とログイン情報を維持\n・前の版はv1.08へ切替可能\n\nv1.08 · 2026/10/22\n・GoFile Centerの個別動画リンクに対応\n・リンクから動画と音声の形式を自動取得\n・パスワード付き・期限切れ・フォルダーは理由を表示\n・ログイン情報と詳細設定、保存記録を保持\n\nv1.07 · 2026/10/19\n・詳細設定を追加し、初回にパスワードを設定\n・次回からはパスワードで開き、画面を離れると再ロック\n・通常画面のログイン一覧を整理\n・ログイン情報・設定・保存記録を維持\n\nv1.06 · 2026/10/19\n・保存成功時に重複確認用の記録を端末内へ保持\n・同じ動画・音声・形式の保存先にファイルがあれば重複を通知\n・削除または移動済みなら案内して再ダウンロード\n・記録はこの版で保存したファイルから対象\n\nv1.05 · 2026/10/12\n・更新用の署名を固定する仕組み\n・アプリ内でAPKを取得して上書き更新\n・更新前に同じアプリ・署名か確認\n・v1.04以前は署名が異なるため、そのまま上書き不可\n\nv1.04 · 2026/10/12\n・通信の応答待ちを20秒から60秒へ\n・一時的な通信エラーの再試行を改善\n・取得に失敗した理由をわかりやすく表示\n\nv1.03 · 2026/10/11\n・MOVIE&AUDIO-TOOLへ名称変更\n・URLでサービスを自動判別\n・サムネイル、タイトル、長さ、画質と推定容量\n・動画／音声の形式選択、音声品質を保って保存\n・サービス別ログインとアカウント管理\n・起動時に本体・エンジンの更新を確認\n・最新版の項目は更新ボタン非表示\n・大容量保存時の通信警告\n・設定から旧版へ切替\n\nv1.02\n・Xの画面入力ログイン、複数アカウント管理\n・新旧版切替とアプリ更新確認\n\nv1.00\n・X動画、録音済みSpaceの保存"
+        const val CHANGELOG = "v1.14 · 2026/11/01\n・保存前の動画・音声プレビューに対応\n・再生／一時停止／シーク操作\n・画面を離れると再生を停止\n・前の版はv1.13へ切替可能\n\nv1.13 · 2026/11/01\n・動画のサムネイル表示を改善\n・GoFile・TwFiles系の表紙画像に対応\n・サムネイルをタップすると拡大表示\n・前の版はv1.12へ切替可能\n\nv1.12 · 2026/10/26\n・TwimgFile（twimgfile.com）の動画リンクに対応\n・同じ仕組みのサイトを自動で追加確認\n・保存先をTwimgFileに分けて表示\n・前の版はv1.11へ切替可能\n\nv1.11 · 2026/10/25\n・TwFiles（twfiles.com）の個別動画リンクに対応\n・保存アプリの案内を経由せず動画情報を取得\n・保存先にTwFilesを表示\n・前の版はv1.10へ切替可能\n\nv1.10 · 2026/10/23\n・gofile.diyの動画リンクに対応\n・リンク元に合わせた通信処理へ変更\n・前の版はv1.09へ切替可能\n\nv1.09 · 2026/10/22\n・SpankBang専用の通信処理を追加（試験対応）\n・既存サイトの取得処理とログイン情報を維持\n・前の版はv1.08へ切替可能\n\nv1.08 · 2026/10/22\n・GoFile Centerの個別動画リンクに対応\n・リンクから動画と音声の形式を自動取得\n・パスワード付き・期限切れ・フォルダーは理由を表示\n・ログイン情報と詳細設定、保存記録を保持\n\nv1.07 · 2026/10/19\n・詳細設定を追加し、初回にパスワードを設定\n・次回からはパスワードで開き、画面を離れると再ロック\n・通常画面のログイン一覧を整理\n・ログイン情報・設定・保存記録を維持\n\nv1.06 · 2026/10/19\n・保存成功時に重複確認用の記録を端末内へ保持\n・同じ動画・音声・形式の保存先にファイルがあれば重複を通知\n・削除または移動済みなら案内して再ダウンロード\n・記録はこの版で保存したファイルから対象\n\nv1.05 · 2026/10/12\n・更新用の署名を固定する仕組み\n・アプリ内でAPKを取得して上書き更新\n・更新前に同じアプリ・署名か確認\n・v1.04以前は署名が異なるため、そのまま上書き不可\n\nv1.04 · 2026/10/12\n・通信の応答待ちを20秒から60秒へ\n・一時的な通信エラーの再試行を改善\n・取得に失敗した理由をわかりやすく表示\n\nv1.03 · 2026/10/11\n・MOVIE&AUDIO-TOOLへ名称変更\n・URLでサービスを自動判別\n・サムネイル、タイトル、長さ、画質と推定容量\n・動画／音声の形式選択、音声品質を保って保存\n・サービス別ログインとアカウント管理\n・起動時に本体・エンジンの更新を確認\n・最新版の項目は更新ボタン非表示\n・大容量保存時の通信警告\n・設定から旧版へ切替\n\nv1.02\n・Xの画面入力ログイン、複数アカウント管理\n・新旧版切替とアプリ更新確認\n\nv1.00\n・X動画、録音済みSpaceの保存"
     }
 }
