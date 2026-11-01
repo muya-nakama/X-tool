@@ -20,7 +20,7 @@ object VersionSwitcher {
     }
     fun addTo(root: LinearLayout, activity: Activity, version: String) {
         root.addView(Button(activity).apply {
-            text = "使用中：v$version" + if (version == CURRENT) "（最新版）・切り替える" else "（一世代前）・切り替える"
+            text = "使用中：v$version" + if (version == CURRENT) "（通常版）・切り替える" else "（一世代前）・切り替える"
             isAllCaps = false
             setOnClickListener { show(activity, version) }
         })
@@ -31,7 +31,7 @@ object VersionSwitcher {
             return
         }
         AlertDialog.Builder(activity).setTitle("使用する版を選ぶ")
-            .setSingleChoiceItems(arrayOf("最新版 v$CURRENT", "一世代前 v$PREVIOUS"), if (version == CURRENT) 0 else 1) { dialog, choice ->
+            .setSingleChoiceItems(arrayOf("通常版 v$CURRENT", "一世代前 v$PREVIOUS"), if (version == CURRENT) 0 else 1) { dialog, choice ->
                 val previous = choice == 1
                 activity.getSharedPreferences("app-version", Context.MODE_PRIVATE).edit().putBoolean("previous", previous).apply()
                 dialog.dismiss()
