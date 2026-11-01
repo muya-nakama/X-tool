@@ -24,11 +24,21 @@ class PreviewPlaybackTest {
         var sawAudio = false
         var sawVideo = false
         var elapsed = 0L
+        val fixtureDir = java.io.File(instrumentation.targetContext.cacheDir, "preview-test-${System.nanoTime()}").apply { mkdirs() }
+        fun fixture(name: String): String {
+            val file = java.io.File(fixtureDir, name)
+            instrumentation.context.assets.open(name).use { input -> file.outputStream().use { input.copyTo(it) } }
+            return file.toURI().toString()
+        }
+        val video = fixture("preview-test-video.mp4")
+        val audio = fixture("preview-test-audio.m4a")
         try {
             instrumentation.runOnMainSync {
-                val p = PreviewPlayback.create(instrumentation.context,
-                    "asset:///preview-test-video.mp4", "asset:///preview-test-audio.m4a", null, null, emptyMap(), emptyMap())
+                val p = PreviewPlayback.create(instrumentation.targetContext,
+                    video, audio, null, null, emptyMap(), emptyMap())
                 player = p; p.volume = 0f
+                // Instrumentation has no foreground Activity: test decoding without audio focus.
+                p.setAudioAttributes(p.audioAttributes, false)
                 p.addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(state: Int) {
                         if (state == Player.STATE_READY) { sawVideo = p.videoFormat != null; sawAudio = p.audioFormat != null }
@@ -41,6 +51,6 @@ class PreviewPlaybackTest {
             assertTrue("Playback did not finish", ended.await(30, TimeUnit.SECONDS))
             assertNull(failure.get()); assertTrue("Video track missing", sawVideo); assertTrue("Audio track missing", sawAudio)
             assertTrue("Playback did not advance", elapsed >= 1000)
-        } finally { instrumentation.runOnMainSync { player?.release() } }
+        } finally { instrumentation.runOnMainSync { player?.release() }; fixtureDir.deleteRecursively() }
     }
 }
