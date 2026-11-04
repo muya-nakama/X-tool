@@ -263,7 +263,7 @@ class MainActivity : Activity() {
         val body = root(); settingsBody = body
         settingsDialog = AlertDialog.Builder(this).setTitle("設定").setView(ScrollView(this).apply { addView(body) }).setNegativeButton("閉じる", null).create()
         settingsDialog?.setOnDismissListener { settingsBody = null; settingsDialog = null }
-        refreshSettings(); settingsDialog?.show()
+        refreshSettings(); settingsDialog?.show(); checkUpdates()
     }
     private fun refreshSettings() {
         val body = settingsBody ?: return
@@ -278,12 +278,13 @@ class MainActivity : Activity() {
         }
         AdvancedSettingsActivity.addEntry(body, this)
         body.addView(text("アプリ本体：$appStatus"))
-        appRemote?.takeIf { AppUpdates.newer(it.version, BuildConfig.VERSION_NAME) }?.let { remote ->
-            body.addView(button("アプリを更新") {
+        body.addView(button("アプリを更新") {
+            val remote = appRemote
+            if (remote != null && AppUpdates.newer(remote.version, BuildConfig.VERSION_NAME)) {
                 AlertDialog.Builder(this).setTitle("v${remote.version}の更新内容").setMessage(remote.notes.ifBlank { "配布ページで更新内容を確認できます。" })
                     .setPositiveButton("更新する") { _, _ -> jp.muya.xsaver.UpdateActivity.open(this) }.setNegativeButton("戻る", null).show()
-            })
-        }
+            } else jp.muya.xsaver.UpdateActivity.open(this)
+        })
         body.addView(text("共通エンジン：$engineStatus"))
         if (engineRemote != null && engineLocal != null && engineRemote!! > engineLocal!!) {
             body.addView(button("エンジンを更新") {
@@ -363,6 +364,12 @@ class MainActivity : Activity() {
         checking = true; appStatus = "確認中…"; engineStatus = "確認中…"; refreshSettings()
         Thread {
             val app = runCatching { AppUpdates.check() }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                app.onSuccess { appRemote = it; appStatus = AppUpdates.status(it.version, BuildConfig.VERSION_NAME) }
+                    .onFailure { appRemote = null; appStatus = "確認できませんでした。「アプリを更新」から再確認できます。" }
+                refreshSettings()
+            }
             val engine = runCatching {
                 val remote = UpdateHttp.get("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest").let { JSONObject(it).getString("tag_name") }
                 val local = synchronized(EngineGate.lock) {
@@ -374,8 +381,6 @@ class MainActivity : Activity() {
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
                 checking = false
-                app.onSuccess { appRemote = it; appStatus = if (AppUpdates.newer(it.version, BuildConfig.VERSION_NAME)) "v${it.version} 更新あり" else "最新版" }
-                    .onFailure { appRemote = null; appStatus = "確認できませんでした（保存は利用できます）" }
                 engine.onSuccess { (remote, local) -> engineRemote = remote; engineLocal = local; engineStatus = if (remote <= local) "最新版（$local）" else "$local → $remote 更新あり" }
                     .onFailure { engineRemote = null; engineStatus = "確認できませんでした（保存は利用できます）" }
                 refreshSettings()
@@ -384,6 +389,6 @@ class MainActivity : Activity() {
     }
     private fun toast(message: String) { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
     companion object {
-        const val CHANGELOG = "v1.14 · 2026/11/01\n・保存前の動画・音声プレビューに対応\n・再生／一時停止／シーク操作\n・画面を離れると再生を停止\n・前の版はv1.13へ切替可能\n\nv1.13 · 2026/11/01\n・動画のサムネイル表示を改善\n・GoFile・TwFiles系の表紙画像に対応\n・サムネイルをタップすると拡大表示\n・前の版はv1.12へ切替可能\n\nv1.12 · 2026/10/26\n・TwimgFile（twimgfile.com）の動画リンクに対応\n・同じ仕組みのサイトを自動で追加確認\n・保存先をTwimgFileに分けて表示\n・前の版はv1.11へ切替可能\n\nv1.11 · 2026/10/25\n・TwFiles（twfiles.com）の個別動画リンクに対応\n・保存アプリの案内を経由せず動画情報を取得\n・保存先にTwFilesを表示\n・前の版はv1.10へ切替可能\n\nv1.10 · 2026/10/23\n・gofile.diyの動画リンクに対応\n・リンク元に合わせた通信処理へ変更\n・前の版はv1.09へ切替可能\n\nv1.09 · 2026/10/22\n・SpankBang専用の通信処理を追加（試験対応）\n・既存サイトの取得処理とログイン情報を維持\n・前の版はv1.08へ切替可能\n\nv1.08 · 2026/10/22\n・GoFile Centerの個別動画リンクに対応\n・リンクから動画と音声の形式を自動取得\n・パスワード付き・期限切れ・フォルダーは理由を表示\n・ログイン情報と詳細設定、保存記録を保持\n\nv1.07 · 2026/10/19\n・詳細設定を追加し、初回にパスワードを設定\n・次回からはパスワードで開き、画面を離れると再ロック\n・通常画面のログイン一覧を整理\n・ログイン情報・設定・保存記録を維持\n\nv1.06 · 2026/10/19\n・保存成功時に重複確認用の記録を端末内へ保持\n・同じ動画・音声・形式の保存先にファイルがあれば重複を通知\n・削除または移動済みなら案内して再ダウンロード\n・記録はこの版で保存したファイルから対象\n\nv1.05 · 2026/10/12\n・更新用の署名を固定する仕組み\n・アプリ内でAPKを取得して上書き更新\n・更新前に同じアプリ・署名か確認\n・v1.04以前は署名が異なるため、そのまま上書き不可\n\nv1.04 · 2026/10/12\n・通信の応答待ちを20秒から60秒へ\n・一時的な通信エラーの再試行を改善\n・取得に失敗した理由をわかりやすく表示\n\nv1.03 · 2026/10/11\n・MOVIE&AUDIO-TOOLへ名称変更\n・URLでサービスを自動判別\n・サムネイル、タイトル、長さ、画質と推定容量\n・動画／音声の形式選択、音声品質を保って保存\n・サービス別ログインとアカウント管理\n・起動時に本体・エンジンの更新を確認\n・最新版の項目は更新ボタン非表示\n・大容量保存時の通信警告\n・設定から旧版へ切替\n\nv1.02\n・Xの画面入力ログイン、複数アカウント管理\n・新旧版切替とアプリ更新確認\n\nv1.00\n・X動画、録音済みSpaceの保存"
+        const val CHANGELOG = "v1.15 · 2026/11/01\n・設定を開くと更新情報を取り直すよう修正\n・配布元の古いキャッシュを使わないよう改善\n・アプリの更新ボタンを常に表示\n・前の版はv1.14へ切替可能\n\nv1.14 · 2026/11/01\n・保存前の動画・音声プレビューに対応\n・再生／一時停止／シーク操作\n・画面を離れると再生を停止\n・前の版はv1.13へ切替可能\n\nv1.13 · 2026/11/01\n・動画のサムネイル表示を改善\n・GoFile・TwFiles系の表紙画像に対応\n・サムネイルをタップすると拡大表示\n・前の版はv1.12へ切替可能\n\nv1.12 · 2026/10/26\n・TwimgFile（twimgfile.com）の動画リンクに対応\n・同じ仕組みのサイトを自動で追加確認\n・保存先をTwimgFileに分けて表示\n・前の版はv1.11へ切替可能\n\nv1.11 · 2026/10/25\n・TwFiles（twfiles.com）の個別動画リンクに対応\n・保存アプリの案内を経由せず動画情報を取得\n・保存先にTwFilesを表示\n・前の版はv1.10へ切替可能\n\nv1.10 · 2026/10/23\n・gofile.diyの動画リンクに対応\n・リンク元に合わせた通信処理へ変更\n・前の版はv1.09へ切替可能\n\nv1.09 · 2026/10/22\n・SpankBang専用の通信処理を追加（試験対応）\n・既存サイトの取得処理とログイン情報を維持\n・前の版はv1.08へ切替可能\n\nv1.08 · 2026/10/22\n・GoFile Centerの個別動画リンクに対応\n・リンクから動画と音声の形式を自動取得\n・パスワード付き・期限切れ・フォルダーは理由を表示\n・ログイン情報と詳細設定、保存記録を保持\n\nv1.07 · 2026/10/19\n・詳細設定を追加し、初回にパスワードを設定\n・次回からはパスワードで開き、画面を離れると再ロック\n・通常画面のログイン一覧を整理\n・ログイン情報・設定・保存記録を維持\n\nv1.06 · 2026/10/19\n・保存成功時に重複確認用の記録を端末内へ保持\n・同じ動画・音声・形式の保存先にファイルがあれば重複を通知\n・削除または移動済みなら案内して再ダウンロード\n・記録はこの版で保存したファイルから対象\n\nv1.05 · 2026/10/12\n・更新用の署名を固定する仕組み\n・アプリ内でAPKを取得して上書き更新\n・更新前に同じアプリ・署名か確認\n・v1.04以前は署名が異なるため、そのまま上書き不可\n\nv1.04 · 2026/10/12\n・通信の応答待ちを20秒から60秒へ\n・一時的な通信エラーの再試行を改善\n・取得に失敗した理由をわかりやすく表示\n\nv1.03 · 2026/10/11\n・MOVIE&AUDIO-TOOLへ名称変更\n・URLでサービスを自動判別\n・サムネイル、タイトル、長さ、画質と推定容量\n・動画／音声の形式選択、音声品質を保って保存\n・サービス別ログインとアカウント管理\n・起動時に本体・エンジンの更新を確認\n・最新版の項目は更新ボタン非表示\n・大容量保存時の通信警告\n・設定から旧版へ切替\n\nv1.02\n・Xの画面入力ログイン、複数アカウント管理\n・新旧版切替とアプリ更新確認\n\nv1.00\n・X動画、録音済みSpaceの保存"
     }
 }
