@@ -14,7 +14,7 @@ class LauncherActivity : Activity() {
         if (intent.action == Intent.ACTION_SEND) {
             next.action = Intent.ACTION_SEND
             next.type = "text/plain"
-            next.putExtra(Intent.EXTRA_TEXT, intent.getStringExtra(Intent.EXTRA_TEXT))
+            next.putExtra(Intent.EXTRA_TEXT, intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString())
             intent.removeExtra(Intent.EXTRA_TEXT)
         }
         startActivity(next)
