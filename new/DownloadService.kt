@@ -27,6 +27,7 @@ class DownloadService : Service() {
     @Volatile private var working = false
     @Volatile private var cancelled = false
     @Volatile private var networkInterrupted = false
+    private var requestId: String? = null
     private val processId = UUID.randomUUID().toString()
     private var wake: PowerManager.WakeLock? = null
     private var cookieFile: File? = null
@@ -59,6 +60,8 @@ class DownloadService : Service() {
         intent?.removeExtra("url")
         intent?.removeExtra("accountId")
         if (!updating && url == null) { stopSelf(); return START_NOT_STICKY }
+        requestId = intent?.getStringExtra("requestId")
+        intent?.removeExtra("requestId")
         working = true
         cancelled = false
         networkInterrupted = false
@@ -241,7 +244,7 @@ class DownloadService : Service() {
             working = false
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
-            StateHub.publish(result)
+            StateHub.publish(result.copy(requestId = requestId))
         }
     }
     private fun baseRequest(url: String?): YoutubeDLRequest {
