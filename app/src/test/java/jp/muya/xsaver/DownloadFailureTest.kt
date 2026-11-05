@@ -22,6 +22,14 @@ class DownloadFailureTest {
     @Test fun cookieInstructionGetsLoginGuidance() {
         assertTrue(DownloadFailure.message(RuntimeException("Sign in. Use --cookies-from-browser or --cookies")).contains("ログイン"))
     }
+    @Test fun retriesOnlyTheSelectedNativeHlsFormatOnMissingData() {
+        val info = org.json.JSONObject("""{"formats":[{"format_id":"stream","protocol":"m3u8_native"},{"format_id":"file","protocol":"https"}]}""")
+        val missing = RuntimeException("HTTP Error 404: Not Found")
+        assertTrue(DownloadFailure.retrySerialHls(info, "stream", missing))
+        assertFalse(DownloadFailure.retrySerialHls(info, "file", missing))
+        assertFalse(DownloadFailure.retrySerialHls(info, "stream", RuntimeException("HTTP Error 403: Forbidden")))
+        assertFalse(DownloadFailure.message(missing).contains("削除"))
+    }
     @Test fun originalValidationMessageIsPreserved() {
         assertEquals("保存先に書き込めませんでした。", DownloadFailure.message(IllegalStateException("保存先に書き込めませんでした。")))
     }
