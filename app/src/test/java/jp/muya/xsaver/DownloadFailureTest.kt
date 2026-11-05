@@ -30,6 +30,20 @@ class DownloadFailureTest {
         assertFalse(DownloadFailure.retrySerialHls(info, "stream", RuntimeException("HTTP Error 403: Forbidden")))
         assertFalse(DownloadFailure.message(missing).contains("削除"))
     }
+    @Test fun alternateRequiresASingleHlsStreamWithKnownDuration() {
+        val info = org.json.JSONObject("""{"format_id":"stream","protocol":"m3u8_native"}""")
+        val missing = RuntimeException("HTTP Error 404: Not Found")
+        assertTrue(DownloadFailure.retryAlternateHls(info, "stream", 1674.0, missing))
+        assertFalse(DownloadFailure.retryAlternateHls(info, "stream+audio", 1674.0, missing))
+        assertFalse(DownloadFailure.retryAlternateHls(info, "stream", 0.0, missing))
+    }
+
+    @Test fun refusesAnIncompleteAlternateDownload() {
+        assertFalse(DownloadFailure.completeDuration(1674.0, 200_880))
+        assertFalse(DownloadFailure.completeDuration(1674.0, null))
+        assertTrue(DownloadFailure.completeDuration(1674.0, 1673_800))
+    }
+
     @Test fun originalValidationMessageIsPreserved() {
         assertEquals("保存先に書き込めませんでした。", DownloadFailure.message(IllegalStateException("保存先に書き込めませんでした。")))
     }
