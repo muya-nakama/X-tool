@@ -4,9 +4,19 @@ package jp.muya.xsaver
 object DownloadFailure {
     fun unsupported(error: Exception): Boolean = generateSequence<Throwable>(error) { it.cause }.take(8)
         .any { it.message.orEmpty().let { text -> text.contains("unsupported url", true) || text.contains("no suitable extractor", true) } }
-    fun message(error: Exception): String {
-        val detail = generateSequence<Throwable>(error) { it.cause }.take(8)
+    private fun details(error: Exception): String = generateSequence<Throwable>(error) { it.cause }.take(8)
             .joinToString("\n") { it.message.orEmpty() }.lowercase(java.util.Locale.ROOT)
+    fun retrySerialHls(info: org.json.JSONObject, selector: String, error: Exception): Boolean {
+        val detail = details(error)
+        if ("http error 404" !in detail && "fragment not found" !in detail &&
+            "unable to download fragment" !in detail) return false
+        val selected = selector.split('+').toSet()
+        val formats = info.optJSONArray("formats")
+        val rows = if (formats == null) listOf(info) else (0 until formats.length()).mapNotNull { formats.optJSONObject(it) }
+        return rows.any { it.optString("format_id") in selected && it.optString("protocol") == "m3u8_native" }
+    }
+    fun message(error: Exception): String {
+        val detail = details(error)
         fun has(vararg words: String) = words.any { detail.contains(it) }
         return when {
             has("timed out", "timeout", "time out") ->
@@ -23,7 +33,9 @@ object DownloadFailure {
                 "選んだ形式を取得できませんでした。読み込み直して、別の形式を選んでください。"
             has("name or service not known", "temporary failure in name resolution", "network is unreachable", "connection reset", "connection refused", "unable to resolve host") ->
                 "サイトに接続できませんでした。Wi-Fiやモバイル通信の状態を確認してください。"
-            has("video unavailable", "has been removed", "not available in your country", "http error 404") ->
+            has("http error 404", "fragment not found", "unable to download fragment") ->
+                "配信元から動画データを取得できませんでした。別の画質があれば選び直してください。"
+            has("video unavailable", "has been removed", "not available in your country") ->
                 "動画が削除されたか、この地域・アカウントでは取得できません。元のページを確認してください。"
             error is IllegalStateException || error is IllegalArgumentException -> error.message ?: "保存できませんでした。"
             else -> "取得できませんでした。「設定」で取得エンジンを更新して再度お試しください。サイト側の仕様や制限が原因の場合もあります。"
