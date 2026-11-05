@@ -154,16 +154,18 @@ class DownloadService : Service() {
             if (NetworkPolicy.needsWarning(this, choice.bytes) && !mobileApproved)
                 throw IllegalStateException("Wi-Fi・有線接続ではありません。もう一度読み込み、通信量の確認後に保存してください。")
             val metadata = File(task, "info.json").apply { writeText(info) }
-            val request = baseRequest(null)
+            fun saveRequest(concurrency: Int) = baseRequest(null)
                 .addOption("--load-info-json", metadata.absolutePath)
                 .addOption("-o", File(output, "%(title).100B [%(id)s].%(ext)s").absolutePath)
                 .addOption("--windows-filenames")
-                .addOption("--concurrent-fragments", 4)
+                .addOption("--concurrent-fragments", concurrency)
                 .addOption("--no-mtime")
-            if (gofile != null) request.addOption("--referer", gofile.referer)
-            request.addOption("-f", choice.selector)
-            if (audioOnly) request.addOption("-x").addOption("--audio-format", "best")
-            else if (choice.selector.contains('+')) request.addOption("--merge-output-format", "mkv")
+                .apply {
+                    gofile?.let { addOption("--referer", it.referer) }
+                    addOption("-f", choice.selector)
+                    if (audioOnly) addOption("-x").addOption("--audio-format", "best")
+                    else if (choice.selector.contains('+')) addOption("--merge-output-format", "mkv")
+                }
             show(if (audioOnly) "音声をダウンロードしています…" else "動画をダウンロードしています…")
             checkCancel()
             var lastNotice = 0L
@@ -184,8 +186,18 @@ class DownloadService : Service() {
                     }
                 }
             }
-            if (spankbang) SpankBangEngine.execute(this, request, processId, ::checkCancel, progress)
-            else YoutubeDL.execute(request, processId, progress)
+            if (spankbang) SpankBangEngine.execute(this, saveRequest(4), processId, ::checkCancel, progress)
+            else try {
+                YoutubeDL.execute(saveRequest(4), processId, progress)
+            } catch (error: Exception) {
+                checkCancel()
+                if (!DownloadFailure.retrySerialHls(JSONObject(info), choice.selector, error)) throw error
+                show("動画の一部を取得できなかったため、順番に取り直しています…")
+                // Start clean so a previous partial transfer cannot be published or resumed.
+                check(output.deleteRecursively() && output.mkdirs()) { "一時ファイルを作り直せませんでした。" }
+                checkCancel()
+                YoutubeDL.execute(saveRequest(1), processId, progress)
+            }
             checkCancel()
             val files = output.listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("mp4", "mkv", "webm", "m4a", "mp3", "opus", "ogg", "flac", "wav", "aac", "mov", "mka") && it.length() > 0 }.orEmpty()
             if (files.isEmpty()) throw IllegalStateException("保存できるファイルが生成されませんでした。")
