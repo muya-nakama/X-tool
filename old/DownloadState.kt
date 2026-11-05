@@ -11,7 +11,8 @@ data class DownloadState(
     val progress: Int = -1,
     val file: Uri? = null,
     val mime: String? = null,
-    val preview: MediaInfo? = null
+    val preview: MediaInfo? = null,
+    val requestId: String? = null
 )
 
 // Screen state stays in memory. Successful file identities/locations are stored separately in DownloadHistoryStore.
