@@ -91,6 +91,43 @@ class GofileCenterTest {
         assertFalse(GofileCenter.supports("https://twimgfiles.com/xyz123"))
         assertFalse(GofileCenter.supports("https://twimgfile.com.evil.test/xyz123"))
     }
+    @Test fun newGofileDomainsKeepTheirOwnRefererAndFolder() {
+        for (domain in listOf("gofile.guru", "gofile.meme")) {
+            val calls = mutableListOf<String>()
+            val media = GofileCenter.resolve("https://www.$domain/xyz123", read = { url ->
+                calls.add(url)
+                when (calls.size) {
+                    1 -> "<script src='/assets/index-current.js'></script>"
+                    2 -> "return `https://mpnxcr.gofile.mov`;"
+                    else -> response().toString()
+                }
+            })
+            assertEquals("https://$domain/", media.referer)
+            assertEquals(domain, MediaLink.folder("https://$domain/xyz123"))
+            assertEquals(domain, media.annotate(JSONObject()).getString("extractor_key"))
+            assertEquals("https://mpnxcr.gofile.mov/app-api/flow/land-page/getInfo?externalLinks=xyz123&domain=$domain", calls.last())
+            assertFalse(GofileCenter.supports("https://$domain.evil.test/xyz123"))
+        }
+    }
+    @Test fun bidUsesSameOriginMetadataProxy() {
+        val calls = mutableListOf<String>()
+        val media = GofileCenter.resolve("https://gofile.bid/xyz123", read = { url ->
+            calls.add(url)
+            when (calls.size) {
+                1 -> "<script src='/assets/index-current.js'></script>"
+                2 -> "var base=`/api.php`; params.set(`endpoint`,`/flow/land-page/getInfo`);"
+                else -> response().toString()
+            }
+        })
+        assertEquals("https://gofile.bid/api.php?endpoint=%2Fflow%2Fland-page%2FgetInfo&externalLinks=xyz123&domain=gofile.bid", calls.last())
+        assertEquals("https://gofile.bid/", media.referer)
+        assertEquals("gofile.bid", MediaLink.folder("https://gofile.bid/xyz123"))
+        assertEquals("gofile.bid", media.annotate(JSONObject()).getString("extractor_key"))
+        assertFalse(GofileCenter.supports("https://gofile.bid.evil.test/xyz123"))
+    }
+    @Test(expected = IllegalStateException::class) fun unknownSitesCannotSelectBidProxy() {
+        GofileCenter.metadataEndpoint("/api.php endpoint /flow/land-page/getInfo", "https://unknown.example/", "xyz123")
+    }
     @Test fun compatibleSiteUsesOnlyItsOwnPageAndRecognizedBackend() {
         val calls = mutableListOf<String>()
         val media = GofileCenter.resolveCompatible("https://public.example/xyz123", read = { url ->
