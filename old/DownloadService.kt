@@ -3,6 +3,7 @@ package jp.muya.xsaver
 import android.app.*
 import android.content.ContentValues
 import android.content.Intent
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.IBinder
 import android.os.PowerManager
@@ -14,6 +15,8 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.CancellationException
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class DownloadService : Service() {
     companion object {
@@ -154,7 +157,7 @@ class DownloadService : Service() {
             if (NetworkPolicy.needsWarning(this, choice.bytes) && !mobileApproved)
                 throw IllegalStateException("Wi-Fi・有線接続ではありません。もう一度読み込み、通信量の確認後に保存してください。")
             val metadata = File(task, "info.json").apply { writeText(info) }
-            fun saveRequest(concurrency: Int) = baseRequest(null)
+            fun saveRequest(concurrency: Int, alternate: Boolean = false) = baseRequest(null)
                 .addOption("--load-info-json", metadata.absolutePath)
                 .addOption("-o", File(output, "%(title).100B [%(id)s].%(ext)s").absolutePath)
                 .addOption("--windows-filenames")
@@ -162,6 +165,10 @@ class DownloadService : Service() {
                 .addOption("--no-mtime")
                 .apply {
                     gofile?.let { addOption("--referer", it.referer) }
+                    if (alternate) {
+                        addOption("--downloader", "ffmpeg")
+                        addOption("--downloader-args", "ffmpeg_i:-xerror -rw_timeout 60000000")
+                    }
                     addOption("-f", choice.selector)
                     if (audioOnly) addOption("-x").addOption("--audio-format", "best")
                     else if (choice.selector.contains('+')) addOption("--merge-output-format", "mkv")
@@ -186,21 +193,70 @@ class DownloadService : Service() {
                     }
                 }
             }
+            fun clearAttempt() {
+                checkCancel()
+                check(output.deleteRecursively() && output.mkdirs()) { "一時ファイルを作り直せませんでした。" }
+            }
+            val parsedInfo = JSONObject(info)
+            var usedAlternate = false
             if (spankbang) SpankBangEngine.execute(this, saveRequest(4), processId, ::checkCancel, progress)
             else try {
                 YoutubeDL.execute(saveRequest(4), processId, progress)
             } catch (error: Exception) {
                 checkCancel()
-                if (!DownloadFailure.retrySerialHls(JSONObject(info), choice.selector, error)) throw error
+                if (!DownloadFailure.retrySerialHls(parsedInfo, choice.selector, error)) throw error
                 show("動画の一部を取得できなかったため、順番に取り直しています…")
-                // Start clean so a previous partial transfer cannot be published or resumed.
-                check(output.deleteRecursively() && output.mkdirs()) { "一時ファイルを作り直せませんでした。" }
-                checkCancel()
-                YoutubeDL.execute(saveRequest(1), processId, progress)
+                clearAttempt()
+                try {
+                    YoutubeDL.execute(saveRequest(1), processId, progress)
+                } catch (serialError: Exception) {
+                    checkCancel()
+                    if (!DownloadFailure.retryAlternateHls(parsedInfo, choice.selector, media.duration, serialError)) throw serialError
+                    clearAttempt()
+                    show("別の保存エンジンで取り直しています…")
+                    // FFmpeg may emit no progress callback until it exits.
+                    val guard = if (!mobileApproved && (choice.bytes == null || choice.bytes >= NetworkPolicy.limit(this))) {
+                        Executors.newSingleThreadScheduledExecutor().apply {
+                            scheduleWithFixedDelay({
+                                if (networkInterrupted || (!cancelled && !NetworkPolicy.trusted(this@DownloadService))) {
+                                    networkInterrupted = true
+                                    cancelled = true
+                                    cancelProcesses()
+                                }
+                            }, 0, 1, TimeUnit.SECONDS)
+                        }
+                    } else null
+                    try {
+                        checkCancel()
+                        YoutubeDL.execute(saveRequest(1, alternate = true), processId, null)
+                        checkCancel()
+                        usedAlternate = true
+                    } catch (alternateError: Exception) {
+                        checkCancel()
+                        throw IllegalStateException("別の保存エンジンでも失敗しました。\n" + DownloadFailure.message(alternateError))
+                    } finally {
+                        guard?.shutdownNow()
+                    }
+                }
             }
             checkCancel()
             val files = output.listFiles()?.filter { it.isFile && it.extension.lowercase() in setOf("mp4", "mkv", "webm", "m4a", "mp3", "opus", "ogg", "flac", "wav", "aac", "mov", "mka") && it.length() > 0 }.orEmpty()
             if (files.isEmpty()) throw IllegalStateException("保存できるファイルが生成されませんでした。")
+            if (usedAlternate) {
+                show("動画・音声が最後まで取得できたか確認しています…")
+                val file = files.singleOrNull()
+                val actualMs = file?.let { saved ->
+                    runCatching {
+                        MediaMetadataRetriever().use { retriever ->
+                            retriever.setDataSource(saved.absolutePath)
+                            retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                        }
+                    }.getOrNull()
+                }
+                check(DownloadFailure.completeDuration(media.duration, actualMs)) {
+                    "別の保存エンジンで取得しましたが、最後まで揃ったことを確認できなかったため保存しませんでした。"
+                }
+            }
             fun mediaMime(file: File): String = when (file.extension.lowercase()) {
                 "mkv" -> "video/x-matroska"; "webm" -> if (audioOnly) "audio/webm" else "video/webm"
                 "m4a" -> "audio/mp4"; "mp3" -> "audio/mpeg"; "opus", "ogg" -> "audio/ogg"

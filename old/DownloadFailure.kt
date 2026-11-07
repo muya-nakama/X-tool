@@ -15,6 +15,15 @@ object DownloadFailure {
         val rows = if (formats == null) listOf(info) else (0 until formats.length()).mapNotNull { formats.optJSONObject(it) }
         return rows.any { it.optString("format_id") in selected && it.optString("protocol") == "m3u8_native" }
     }
+    fun retryAlternateHls(info: org.json.JSONObject, selector: String, duration: Double, error: Exception): Boolean =
+        '+' !in selector && duration.isFinite() && duration > 0 && retrySerialHls(info, selector, error)
+
+    // Allow small playlist/container rounding differences, but reject clearly short outputs.
+    fun completeDuration(expectedSeconds: Double, actualMs: Long?): Boolean {
+        if (!expectedSeconds.isFinite() || expectedSeconds <= 0 || actualMs == null || actualMs <= 0) return false
+        val tolerance = (expectedSeconds * 50).coerceIn(150.0, 2_000.0)
+        return actualMs >= expectedSeconds * 1_000 - tolerance
+    }
     fun message(error: Exception): String {
         val detail = details(error)
         fun has(vararg words: String) = words.any { detail.contains(it) }
@@ -33,7 +42,7 @@ object DownloadFailure {
                 "選んだ形式を取得できませんでした。読み込み直して、別の形式を選んでください。"
             has("name or service not known", "temporary failure in name resolution", "network is unreachable", "connection reset", "connection refused", "unable to resolve host") ->
                 "サイトに接続できませんでした。Wi-Fiやモバイル通信の状態を確認してください。"
-            has("http error 404", "fragment not found", "unable to download fragment") ->
+            has("http error 404", "server returned 404", "fragment not found", "unable to download fragment") ->
                 "配信元から動画データを取得できませんでした。別の画質があれば選び直してください。"
             has("video unavailable", "has been removed", "not available in your country") ->
                 "動画が削除されたか、この地域・アカウントでは取得できません。元のページを確認してください。"
