@@ -26,10 +26,13 @@ data class GofileCenterMedia(val id: String, val url: String, val title: String,
 /** Public landing-page metadata only. No login, tracking requests, media bytes or cache. */
 object GofileCenter {
     const val REFERER = "https://gofile.center/"
-    private val domains = setOf("gofile.center", "gofile.diy", "twfiles.com", "twimgfile.com")
+    private val domains = setOf("gofile.center", "gofile.diy", "twfiles.com", "twimgfile.com", "gofile.guru", "gofile.bid", "gofile.meme")
     fun serviceName(url: String): String = when (URI(url).host.orEmpty().lowercase(Locale.ROOT).removePrefix("www.")) {
         "twfiles.com" -> "TwFiles"
         "twimgfile.com" -> "TwimgFile"
+        "gofile.guru" -> "gofile.guru"
+        "gofile.bid" -> "gofile.bid"
+        "gofile.meme" -> "gofile.meme"
         else -> "GoFile Center"
     }
     fun compatibleCandidate(url: String): Boolean = runCatching {
@@ -73,11 +76,24 @@ object GofileCenter {
         require(script.matches(Regex("/assets/index-[A-Za-z0-9_-]+\\.js")))
         checkCancel()
         val javascript = read(URI(pageUrl).resolve(script).toASCIIString())
+        val endpoint = metadataEndpoint(javascript, pageReferer, id)
+        checkCancel()
+        val response = JSONObject(read(endpoint))
+        return parse(id, response, service).copy(referer = pageReferer)
+    }
+    /** Only metadata APIs observed in the public page bundle; never ad or tracking scripts. */
+    fun metadataEndpoint(javascript: String, pageReferer: String, id: String): String {
+        val page = URI(pageReferer)
+        require(page.scheme == "https" && page.userInfo == null && page.port in setOf(-1, 443))
+        require(id.matches(Regex("[A-Za-z0-9_-]{1,120}")))
+        val host = page.host.lowercase(Locale.ROOT)
+        if (host == "gofile.bid" && javascript.contains("/api.php") &&
+            javascript.contains("endpoint") && javascript.contains("/flow/land-page/getInfo")) {
+            return "https://$host/api.php?endpoint=%2Fflow%2Fland-page%2FgetInfo&externalLinks=$id&domain=$host"
+        }
         val origin = Regex("https://[A-Za-z0-9.-]+\\.(?:gofile\\.mov|fun800\\.click)(?=[`\"'/])").find(javascript)?.value
             ?: throw IllegalStateException("このサイトの取得先を確認できませんでした。アプリの更新を確認してください。")
-        checkCancel()
-        val response = JSONObject(read("$origin/app-api/flow/land-page/getInfo?externalLinks=$id&domain=${URI(pageReferer).host}"))
-        return parse(id, response, service).copy(referer = pageReferer)
+        return "$origin/app-api/flow/land-page/getInfo?externalLinks=$id&domain=$host"
     }
     private fun obj(value: Any?): JSONObject = when (value) {
         is JSONObject -> value
