@@ -128,6 +128,46 @@ class GofileCenterTest {
     @Test(expected = IllegalStateException::class) fun unknownSitesCannotSelectBidProxy() {
         GofileCenter.metadataEndpoint("/api.php endpoint /flow/land-page/getInfo", "https://unknown.example/", "xyz123")
     }
+    @Test fun tweetjpReadsOnlyItsApplicationBundleAndMetadata() {
+        val calls = mutableListOf<String>()
+        val media = GofileCenter.resolve("https://www.tweetjp.com/?link=axyz123.html", read = { url ->
+            calls.add(url)
+            when (calls.size) {
+                1 -> "<script src='/assets/popunder-rotation-test.js'></script><script src='/assets/ad-runtime-test.js'></script><script src='/assets/app-test.js'></script>"
+                2 -> """const origin = "https://rwzugqnp.fun800.click";"""
+                else -> response().also { it.getJSONObject("data").getJSONObject("info").getJSONObject("netDiskInfo").put("length", "07:53") }.toString()
+            }
+        })
+        assertEquals(listOf(
+            "https://tweetjp.com/?link=axyz123.html",
+            "https://tweetjp.com/assets/app-test.js",
+            "https://rwzugqnp.fun800.click/app-api/flow/land-page/getInfo?externalLinks=xyz123&domain=tweetjp.com"
+        ), calls)
+        assertEquals("https://tweetjp.com/", media.referer)
+        assertEquals("tweetjp.com", MediaLink.folder("https://tweetjp.com/xyz123"))
+        assertEquals("tweetjp.com", media.annotate(JSONObject()).getString("extractor_key"))
+        assertEquals(473.0, media.duration, 0.0)
+    }
+    @Test fun tweetjpAcceptsThePageLinkForms() {
+        for (link in listOf("xyz123", "axyz123.html", "video/xyz123.html", "?link=xyz123", "?externalLinks=xyz123")) {
+            assertEquals("xyz123", GofileCenter.linkId("https://tweetjp.com/$link"))
+        }
+        assertFalse(GofileCenter.supports("https://tweetjp.com.evil.test/xyz123"))
+        assertFalse(GofileCenter.supports("https://not-tweetjp.com/xyz123"))
+    }
+    @Test(expected = IllegalArgumentException::class) fun tweetjpRejectsInjectedLinkParameter() {
+        GofileCenter.linkId("https://tweetjp.com/?link=xyz123%26domain%3Devil.test")
+    }
+    @Test(expected = IllegalArgumentException::class) fun tweetjpRequiresAVideoLink() {
+        GofileCenter.linkId("https://tweetjp.com/")
+    }
+    @Test fun durationAcceptsClockNotationWithoutNonFiniteValues() {
+        assertEquals(473.5, GofileCenter.durationSeconds("07:53.5"), 0.0)
+        assertEquals(3723.0, GofileCenter.durationSeconds("01:02:03"), 0.0)
+        for (bad in listOf("NaN", "Infinity", "01:60", "1:NaN", "-1:10")) {
+            assertEquals(0.0, GofileCenter.durationSeconds(bad), 0.0)
+        }
+    }
     @Test fun compatibleSiteUsesOnlyItsOwnPageAndRecognizedBackend() {
         val calls = mutableListOf<String>()
         val media = GofileCenter.resolveCompatible("https://public.example/xyz123", read = { url ->

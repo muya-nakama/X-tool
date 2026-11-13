@@ -7,6 +7,7 @@ import java.net.InetAddress
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.net.URLDecoder
 import java.util.Locale
 
 data class GofileCenterMedia(val id: String, val url: String, val title: String, val duration: Double, val referer: String = GofileCenter.REFERER, val service: String = "GoFile Center", val thumbnail: String? = null) {
@@ -26,13 +27,14 @@ data class GofileCenterMedia(val id: String, val url: String, val title: String,
 /** Public landing-page metadata only. No login, tracking requests, media bytes or cache. */
 object GofileCenter {
     const val REFERER = "https://gofile.center/"
-    private val domains = setOf("gofile.center", "gofile.diy", "twfiles.com", "twimgfile.com", "gofile.guru", "gofile.bid", "gofile.meme")
+    private val domains = setOf("gofile.center", "gofile.diy", "twfiles.com", "twimgfile.com", "gofile.guru", "gofile.bid", "gofile.meme", "tweetjp.com")
     fun serviceName(url: String): String = when (URI(url).host.orEmpty().lowercase(Locale.ROOT).removePrefix("www.")) {
         "twfiles.com" -> "TwFiles"
         "twimgfile.com" -> "TwimgFile"
         "gofile.guru" -> "gofile.guru"
         "gofile.bid" -> "gofile.bid"
         "gofile.meme" -> "gofile.meme"
+        "tweetjp.com" -> "tweetjp.com"
         else -> "GoFile Center"
     }
     fun compatibleCandidate(url: String): Boolean = runCatching {
@@ -59,7 +61,18 @@ object GofileCenter {
         require(supports(url))
         val uri = URI(url)
         require(uri.scheme == "https" && uri.userInfo == null && uri.port in setOf(-1, 443))
-        val id = uri.path.orEmpty().trim('/')
+        val tweetjp = uri.host.lowercase(Locale.ROOT).removePrefix("www.") == "tweetjp.com"
+        val sharedId = if (tweetjp) {
+            val params = uri.rawQuery.orEmpty().split('&').map { part ->
+                val pair = part.split('=', limit = 2)
+                URLDecoder.decode(pair[0], "UTF-8") to URLDecoder.decode(pair.getOrElse(1) { "" }, "UTF-8")
+            }
+            params.firstOrNull { it.first == "link" && it.second.isNotEmpty() }?.second
+                ?: params.firstOrNull { it.first == "externalLinks" && it.second.isNotEmpty() }?.second
+        } else null
+        val pathId = if (tweetjp) uri.path.orEmpty().trim('/').substringAfterLast('/') else uri.path.orEmpty().trim('/')
+        val candidate = sharedId ?: pathId
+        val id = if (tweetjp) candidate.replace(Regex("(?<=.)\\.[A-Za-z0-9][A-Za-z0-9_-]{0,31}$"), "") else candidate
         require(id.matches(Regex("[A-Za-z0-9_-]{1,120}"))) { "このサイトの動画ページのリンクを指定してください。" }
         return if (id.length > 6 && id.startsWith("a")) id.substring(1) else id
     }
@@ -68,12 +81,17 @@ object GofileCenter {
     }
     private fun resolvePage(url: String, id: String, pageReferer: String, service: String, checkCancel: () -> Unit, read: (String) -> String): GofileCenterMedia {
         checkCancel()
-        val pageUrl = pageReferer + URI(url).path.orEmpty().trim('/')
+        val page = URI(url)
+        val tweetjp = URI(pageReferer).host == "tweetjp.com"
+        val pageUrl = pageReferer + page.rawPath.orEmpty().trim('/') +
+            if (tweetjp && page.rawQuery != null) "?" + page.rawQuery else ""
         val html = read(pageUrl)
+        val scriptPattern = if (tweetjp) Regex("/assets/app-[A-Za-z0-9_-]+\\.js")
+            else Regex("/assets/index-[A-Za-z0-9_-]+\\.js")
         val script = Regex("<script[^>]+src=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
-            .findAll(html).map { it.groupValues[1] }.firstOrNull { it.startsWith("/assets/index-") && it.endsWith(".js") }
+            .findAll(html).map { it.groupValues[1] }.firstOrNull { scriptPattern.matches(it) }
             ?: throw IllegalStateException("このサイトのページ構成が変わったため読み込めません。アプリの更新を確認してください。")
-        require(script.matches(Regex("/assets/index-[A-Za-z0-9_-]+\\.js")))
+        require(scriptPattern.matches(script))
         checkCancel()
         val javascript = read(URI(pageUrl).resolve(script).toASCIIString())
         val endpoint = metadataEndpoint(javascript, pageReferer, id)
@@ -124,10 +142,20 @@ object GofileCenter {
             !host.endsWith(".local") && !host.endsWith(".localhost") && host != "localhost" && !host.contains(':') && !host.matches(Regex("[0-9.]+"))) {
             "このサイトの配信先を安全に確認できませんでした。"
         }
-        val duration = file.optString("length", "").toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 } ?: 0.0
+        val duration = durationSeconds(file.optString("length", file.optString("duration", "")))
         val title = file.optString("name").ifBlank { file.optString("title") }.ifBlank { "$service $id" }.take(300)
         val cover = listOf("coverImage", "thumbnail", "cover", "previewUrl").mapNotNull { ThumbnailPolicy.imageUrl(file.optString(it)) }.firstOrNull()
         return GofileCenterMedia(id, target, title, duration, service = service, thumbnail = cover)
+    }
+    fun durationSeconds(raw: String): Double {
+        val text = raw.trim()
+        val parts = text.split(':')
+        if (parts.size == 1) return text.toDoubleOrNull()?.takeIf { it.isFinite() && it > 0 } ?: 0.0
+        if (parts.size !in 2..3) return 0.0
+        val values = parts.map { it.toDoubleOrNull() ?: return 0.0 }
+        if (values.any { !it.isFinite() || it < 0 } || values.drop(1).any { it >= 60 } ||
+            values.dropLast(1).any { it % 1 != 0.0 }) return 0.0
+        return values.fold(0.0) { total, value -> total * 60 + value }.takeIf { it.isFinite() } ?: 0.0
     }
     private fun get(url: String, checkCancel: () -> Unit, referer: String): String {
         var last: IOException? = null
